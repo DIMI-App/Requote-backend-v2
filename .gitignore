@@ -1,0 +1,30 @@
+# Secrets - never commit these!
+*.json
+google-credentials.json
+requote-ai-backend-*.json
+.env
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Virtual environment
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Outputs (contains processed files)
+outputs/
+uploads/
+*.docx
+*.pdf
