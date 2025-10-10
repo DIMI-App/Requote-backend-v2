@@ -62,7 +62,8 @@ def setup_credentials():
 
 def initialize_client():
     """Initialize Document AI client"""
-    print("\n" + "=" * 60)
+    print("")
+    print("=" * 60)
     print("STEP 2: Initializing Document AI client")
     print("=" * 60)
     
@@ -87,7 +88,8 @@ def initialize_client():
 
 def read_pdf(pdf_path):
     """Read PDF file and return content"""
-    print("\n" + "=" * 60)
+    print("")
+    print("=" * 60)
     print("STEP 3: Reading PDF file")
     print("=" * 60)
     
@@ -110,7 +112,8 @@ def read_pdf(pdf_path):
 
 def process_with_documentai(client, pdf_content):
     """Process PDF with Document AI"""
-    print("\n" + "=" * 60)
+    print("")
+    print("=" * 60)
     print("STEP 4: Processing with Document AI")
     print("=" * 60)
     
@@ -150,7 +153,8 @@ def process_with_documentai(client, pdf_content):
 
 def save_extracted_text(text, output_path):
     """Save extracted text to file"""
-    print("\n" + "=" * 60)
+    print("")
+    print("=" * 60)
     print("STEP 5: Saving extracted text")
     print("=" * 60)
     
@@ -172,72 +176,3 @@ def save_extracted_text(text, output_path):
             f.write(text)
         
         print("File write completed")
-        
-        # Verify file exists
-        if os.path.exists(output_path):
-            file_size = os.path.getsize(output_path)
-            print("SUCCESS: File saved!")
-            print("File size: " + str(file_size) + " bytes")
-            print("File location: " + output_path)
-            
-            # List directory contents
-            files_in_dir = os.listdir(output_dir)
-            print("Files in output directory: " + str(files_in_dir))
-            
-            return True
-        else:
-            print("ERROR: File was not created!")
-            print("Directory contents: " + str(os.listdir(output_dir)))
-            return False
-        
-    except Exception as e:
-        print("ERROR: Failed to save file: " + str(e))
-        import traceback
-        traceback.print_exc()
-        return False
-
-def cleanup_temp_file(temp_path):
-    """Clean up temporary credentials file"""
-    if temp_path and os.path.exists(temp_path):
-        try:
-            os.unlink(temp_path)
-            print("Cleaned up temporary credentials file")
-        except Exception as e:
-            print("Warning: Failed to cleanup temp file: " + str(e))
-
-if __name__ == "__main__":
-    print("\n" + "=" * 60)
-    print("REQUOTE AI - DOCUMENT AI PROCESSING")
-    print("=" * 60)
-    
-    temp_creds_path = None
-    
-    try:
-        # Validate environment variables
-        print("\nValidating environment variables...")
-        if not PROJECT_ID:
-            print("ERROR: GCP_PROJECT_ID not set")
-            sys.exit(1)
-        if not PROCESSOR_ID:
-            print("ERROR: GCP_PROCESSOR_ID not set")
-            sys.exit(1)
-        print("Project ID: " + PROJECT_ID)
-        print("Processor ID: " + PROCESSOR_ID)
-        
-        # Step 1: Setup credentials
-        temp_creds_path = setup_credentials()
-        if not temp_creds_path:
-            print("\nFATAL ERROR: Failed to setup credentials")
-            sys.exit(1)
-        
-        # Step 2: Initialize client
-        client = initialize_client()
-        if not client:
-            print("\nFATAL ERROR: Failed to initialize client")
-            sys.exit(1)
-        
-        # Step 3: Read PDF
-        pdf_path = os.path.join(UPLOAD_FOLDER, 'offer1.pdf')
-        pdf_content = read_pdf(pdf_path)
-        if not pdf_content:
-            print("\nFATAL ERROR: Failed to read PDF")
