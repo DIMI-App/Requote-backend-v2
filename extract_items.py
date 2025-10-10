@@ -4,9 +4,8 @@ from openai import OpenAI
 
 # Load your OpenAI API key
 api_key = os.environ.get("OPENAI_API_KEY")
-from openai import OpenAI
 
-api_key = os.environ.get("OPENAI_API_KEY")
+# Initialize OpenAI client (NEW SDK version)
 client = OpenAI(api_key=api_key)
 
 # Read the parsed text
@@ -14,11 +13,26 @@ with open("outputs/parsed_offer1.txt", "r", encoding="utf-8") as file:
     raw_text = file.read()
 
 # Set the prompts
-system_prompt = "You are an expert data extractor. From unstructured supplier offer text, extract structured item data in JSON format. Each item should include: name, quantity, unit, price, description. Return only valid JSON."
+system_prompt = "You are an expert data extractor. From unstructured supplier offer text, extract structured data as JSON."
+
 user_prompt = f"""Extract items from this offer:
 
 {raw_text}
-"""
+
+Return JSON with this structure:
+{{
+  "items": [
+    {{
+      "name": "product name",
+      "description": "description", 
+      "quantity": "quantity with unit",
+      "unit": "unit",
+      "price": "price with currency"
+    }}
+  ]
+}}
+
+Return ONLY valid JSON, no other text."""
 
 # Send request to GPT
 response = client.chat.completions.create(
