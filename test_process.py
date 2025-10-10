@@ -22,36 +22,35 @@ def get_document_ai_client():
     """Initialize Document AI client with credentials from environment"""
     try:
         if not CREDENTIALS_JSON:
-            print("❌ ERROR: GOOGLE_APPLICATION_CREDENTIALS_JSON not found in environment")
+            print("ERROR: GOOGLE_APPLICATION_CREDENTIALS_JSON not found")
             sys.exit(1)
         
-        print("📋 Parsing Google Cloud credentials...")
+        print("Parsing Google Cloud credentials...")
         credentials_dict = json.loads(CREDENTIALS_JSON)
         
-        print("✅ Credentials parsed successfully")
-        print(f"📧 Service account email: {credentials_dict.get('client_email', 'N/A')}")
+        print("Credentials parsed successfully")
+        service_email = credentials_dict.get('client_email', 'N/A')
+        print("Service account email: " + service_email)
         
         credentials = service_account.Credentials.from_service_account_info(credentials_dict)
         client = documentai.DocumentProcessorServiceClient(credentials=credentials)
         
-        print("✅ Document AI client initialized")
+        print("Document AI client initialized")
         return client
         
     except json.JSONDecodeError as e:
-        print(f"❌ ERROR: Invalid JSON in credentials: {str(e)}")
+        print("ERROR: Invalid JSON in credentials: " + str(e))
         sys.exit(1)
     except Exception as e:
-        print(f"❌ ERROR: Failed to initialize client: {str(e)}")
+        print("ERROR: Failed to initialize client: " + str(e))
         import traceback
         traceback.print_exc()
         sys.exit(1)
 
 def process_pdf_with_documentai(pdf_path, output_text_path):
-    """
-    Process PDF with Google Document AI and save extracted text
-    """
+    """Process PDF with Google Document AI and save extracted text"""
     try:
-        print(f"🔍 Processing PDF: {pdf_path}")
+        print("Processing PDF: " + pdf_path)
         
         # Initialize client
         client = get_document_ai_client()
@@ -60,11 +59,11 @@ def process_pdf_with_documentai(pdf_path, output_text_path):
         with open(pdf_path, 'rb') as f:
             file_content = f.read()
         
-        print(f"✅ Read {len(file_content)} bytes from PDF")
+        print("Read " + str(len(file_content)) + " bytes from PDF")
         
         # Configure the process request
-        name = f"projects/{PROJECT_ID}/locations/{LOCATION}/processors/{PROCESSOR_ID}"
-        print(f"📍 Processor path: {name}")
+        name = "projects/" + PROJECT_ID + "/locations/" + LOCATION + "/processors/" + PROCESSOR_ID
+        print("Processor path: " + name)
         
         # Create the document
         raw_document = documentai.RawDocument(
@@ -78,7 +77,7 @@ def process_pdf_with_documentai(pdf_path, output_text_path):
             raw_document=raw_document
         )
         
-        print("🔄 Calling Document AI API...")
+        print("Calling Document AI API...")
         
         # Process the document
         result = client.process_document(request=request)
@@ -86,26 +85,26 @@ def process_pdf_with_documentai(pdf_path, output_text_path):
         
         extracted_text = document.text
         
-        print(f"✅ Extracted {len(extracted_text)} characters")
+        print("Extracted " + str(len(extracted_text)) + " characters")
         
         # Save extracted text
         with open(output_text_path, 'w', encoding='utf-8') as f:
             f.write(extracted_text)
         
-        print(f"✅ Saved extracted text to: {output_text_path}")
+        print("Saved extracted text to: " + output_text_path)
         
         # Verify file was created
         if os.path.exists(output_text_path):
             file_size = os.path.getsize(output_text_path)
-            print(f"✅ File verified! Size: {file_size} bytes")
+            print("File verified! Size: " + str(file_size) + " bytes")
         else:
-            print(f"❌ ERROR: File was not created at {output_text_path}")
+            print("ERROR: File was not created at " + output_text_path)
             return False
         
         return True
         
     except Exception as e:
-        print(f"❌ Error processing PDF: {str(e)}")
+        print("Error processing PDF: " + str(e))
         import traceback
         traceback.print_exc()
         return False
@@ -117,12 +116,36 @@ if __name__ == "__main__":
     
     # Check required environment variables
     if not PROJECT_ID:
-        print("❌ ERROR: GCP_PROJECT_ID not set")
+        print("ERROR: GCP_PROJECT_ID not set")
         sys.exit(1)
     
     if not PROCESSOR_ID:
-        print("❌ ERROR: GCP_PROCESSOR_ID not set")
+        print("ERROR: GCP_PROCESSOR_ID not set")
         sys.exit(1)
     
-    print(f"✅ Project ID: {PROJECT_ID}")
-    print(f"✅ Processor ID: {PROC
+    print("Project ID: " + PROJECT_ID)
+    print("Processor ID: " + PROCESSOR_ID)
+    
+    # Define paths
+    pdf_path = os.path.join(UPLOAD_FOLDER, 'offer1.pdf')
+    output_text_path = os.path.join(OUTPUT_FOLDER, 'extracted_text.txt')
+    
+    print("Input PDF: " + pdf_path)
+    print("Output text: " + output_text_path)
+    
+    # Check if PDF exists
+    if not os.path.exists(pdf_path):
+        print("PDF not found: " + pdf_path)
+        sys.exit(1)
+    
+    # Process the PDF
+    success = process_pdf_with_documentai(pdf_path, output_text_path)
+    
+    if not success:
+        print("Processing failed")
+        sys.exit(1)
+    
+    print("=" * 60)
+    print("DOCUMENT AI PROCESSING COMPLETED")
+    print("=" * 60)
+    sys.exit(0)
