@@ -71,7 +71,7 @@ def api_process_offer1():
         )
         
         if result.returncode != 0:
-            print(f"Error: {result.stderr}")
+            print(f"❌ Document AI Error: {result.stderr}")
             return jsonify({'error': 'Document AI processing failed', 'details': result.stderr}), 500
         
         print("✅ Document AI complete")
@@ -84,6 +84,19 @@ def api_process_offer1():
         items_output_path = os.path.join(OUTPUT_FOLDER, 'items_offer1.json')
         extract_items_path = os.path.join(BASE_DIR, 'extract_items.py')
         
+        # Verify extracted text file exists
+        if not os.path.exists(extracted_text_path):
+            print(f"❌ Extracted text file not found: {extracted_text_path}")
+            print(f"📁 Files in output folder: {os.listdir(OUTPUT_FOLDER)}")
+            return jsonify({
+                'error': 'Extracted text file not found',
+                'expected_path': extracted_text_path,
+                'files_in_output': os.listdir(OUTPUT_FOLDER)
+            }), 500
+        
+        print(f"✅ Found extracted text file")
+        print(f"📞 Calling: python {extract_items_path} {extracted_text_path} {items_output_path}")
+        
         result = subprocess.run(
             ['python', extract_items_path, extracted_text_path, items_output_path],
             capture_output=True,
@@ -91,18 +104,29 @@ def api_process_offer1():
             cwd=BASE_DIR
         )
         
+        print(f"Return code: {result.returncode}")
+        print(f"STDOUT: {result.stdout}")
+        print(f"STDERR: {result.stderr}")
+        
         if result.returncode != 0:
-            print(f"Error: {result.stderr}")
-            return jsonify({'error': 'Item extraction failed', 'details': result.stderr}), 500
+            print(f"❌ OpenAI extraction failed")
+            return jsonify({
+                'error': 'Item extraction failed', 
+                'details': result.stderr,
+                'stdout': result.stdout
+            }), 500
         
         print("✅ Extraction complete")
-        print(f"Output: {result.stdout}")
         
-        # Load extracted items with absolute path
+        # Step 3: Load extracted items with absolute path
         if not os.path.exists(items_output_path):
             print(f"❌ Items file not found at: {items_output_path}")
-            print(f"Files in output folder: {os.listdir(OUTPUT_FOLDER)}")
-            return jsonify({'error': 'Items file not created'}), 500
+            print(f"📁 Files in output folder: {os.listdir(OUTPUT_FOLDER)}")
+            return jsonify({
+                'error': 'Items file not created',
+                'expected_path': items_output_path,
+                'files_in_output': os.listdir(OUTPUT_FOLDER)
+            }), 500
         
         with open(items_output_path, 'r', encoding='utf-8') as f:
             items = json.load(f)
