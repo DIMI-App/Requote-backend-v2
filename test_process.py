@@ -85,3 +85,44 @@ def process_pdf_with_documentai(pdf_path, output_text_path):
         document = result.document
         
         extracted_text = document.text
+        
+        print(f"✅ Extracted {len(extracted_text)} characters")
+        
+        # Save extracted text
+        with open(output_text_path, 'w', encoding='utf-8') as f:
+            f.write(extracted_text)
+        
+        print(f"✅ Saved extracted text to: {output_text_path}")
+        
+        # Verify file was created
+        if os.path.exists(output_text_path):
+            file_size = os.path.getsize(output_text_path)
+            print(f"✅ File verified! Size: {file_size} bytes")
+        else:
+            print(f"❌ ERROR: File was not created at {output_text_path}")
+            return False
+        
+        return True
+        
+    except Exception as e:
+        print(f"❌ Error processing PDF: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+if __name__ == "__main__":
+    print("=" * 60)
+    print("STARTING DOCUMENT AI PROCESSING")
+    print("=" * 60)
+    
+    # Check required environment variables
+    if not PROJECT_ID:
+        print("❌ ERROR: GCP_PROJECT_ID not set")
+        sys.exit(1)
+    
+    if not PROCESSOR_ID:
+        print("❌ ERROR: GCP_PROCESSOR_ID not set")
+        sys.exit(1)
+    
+    print(f"✅ Project ID: {PROJECT_ID}")
+    print(f"✅ Processor ID: {PROC
