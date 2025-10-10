@@ -4,6 +4,9 @@ from openai import OpenAI
 
 # Load your OpenAI API key
 api_key = os.environ.get("OPENAI_API_KEY")
+from openai import OpenAI
+
+api_key = os.environ.get("OPENAI_API_KEY")
 client = OpenAI(api_key=api_key)
 
 # Read the parsed text
