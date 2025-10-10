@@ -65,11 +65,15 @@ try:
         print("🧹 Removed trailing ```")
     
     structured_data = structured_data.strip()
-    
+ 
     # Validate it's actual JSON
     try:
         json_test = json.loads(structured_data)
         items_count = len(json_test.get('items', []))
         print(f"✅ Validated JSON with {items_count} items")
     except json.JSONDecodeError as e:
-            print(f"⚠️  JSON validation failed: {e}")
+        print(f"⚠️  JSON validation failed: {e}")
+
+except Exception as e:
+    print(f"❌ Error during OpenAI extraction: {e}")
+    structured_data = "{}"   # fallback to empty JSON if needed
