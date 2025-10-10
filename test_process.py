@@ -1,8 +1,9 @@
 import os
 import sys
-from google.cloud import documentai_v1 as documentai
-from google.oauth2 import service_account
 import json
+import tempfile
+from google.cloud import documentai_v1 as documentai
+from google.api_core.client_options import ClientOptions
 
 # Get absolute paths
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -20,6 +21,8 @@ CREDENTIALS_JSON = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS_JSON')
 
 def get_document_ai_client():
     """Initialize Document AI client with credentials from environment"""
+    temp_creds_path = None
+    
     try:
         if not CREDENTIALS_JSON:
             print("ERROR: GOOGLE_APPLICATION_CREDENTIALS_JSON not found")
@@ -30,30 +33,51 @@ def get_document_ai_client():
         
         print("Credentials parsed successfully")
         service_email = credentials_dict.get('client_email', 'N/A')
-        print("Service account email: " + service_email)
+        print("Service account: " + service_email)
         
-        credentials = service_account.Credentials.from_service_account_info(credentials_dict)
-        client = documentai.DocumentProcessorServiceClient(credentials=credentials)
+        # Create temporary credentials file (Google libraries prefer this)
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json') as temp_creds:
+            json.dump(credentials_dict, temp_creds)
+            temp_creds_path = temp_creds.name
+        
+        print("Temporary credentials file created")
+        
+        # Set environment variable to point to temp file
+        os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = temp_creds_path
+        
+        # Set regional endpoint
+        client_options = ClientOptions(
+            api_endpoint=LOCATION + "-documentai.googleapis.com"
+        )
+        
+        # Initialize client
+        client = documentai.DocumentProcessorServiceClient(client_options=client_options)
         
         print("Document AI client initialized")
-        return client
+        return client, temp_creds_path
         
     except json.JSONDecodeError as e:
         print("ERROR: Invalid JSON in credentials: " + str(e))
+        if temp_creds_path and os.path.exists(temp_creds_path):
+            os.unlink(temp_creds_path)
         sys.exit(1)
     except Exception as e:
         print("ERROR: Failed to initialize client: " + str(e))
         import traceback
         traceback.print_exc()
+        if temp_creds_path and os.path.exists(temp_creds_path):
+            os.unlink(temp_creds_path)
         sys.exit(1)
 
 def process_pdf_with_documentai(pdf_path, output_text_path):
     """Process PDF with Google Document AI and save extracted text"""
+    temp_creds_path = None
+    
     try:
         print("Processing PDF: " + pdf_path)
         
         # Initialize client
-        client = get_document_ai_client()
+        client, temp_creds_path = get_document_ai_client()
         
         # Read the file
         with open(pdf_path, 'rb') as f:
@@ -97,17 +121,24 @@ def process_pdf_with_documentai(pdf_path, output_text_path):
         if os.path.exists(output_text_path):
             file_size = os.path.getsize(output_text_path)
             print("File verified! Size: " + str(file_size) + " bytes")
+            return True
         else:
-            print("ERROR: File was not created at " + output_text_path)
+            print("ERROR: File was not created")
             return False
-        
-        return True
         
     except Exception as e:
         print("Error processing PDF: " + str(e))
         import traceback
         traceback.print_exc()
         return False
+    finally:
+        # Clean up temporary credentials file
+        if temp_creds_path and os.path.exists(temp_creds_path):
+            try:
+                os.unlink(temp_creds_path)
+                print("Cleaned up temporary credentials")
+            except:
+                pass
 
 if __name__ == "__main__":
     print("=" * 60)
@@ -136,16 +167,3 @@ if __name__ == "__main__":
     # Check if PDF exists
     if not os.path.exists(pdf_path):
         print("PDF not found: " + pdf_path)
-        sys.exit(1)
-    
-    # Process the PDF
-    success = process_pdf_with_documentai(pdf_path, output_text_path)
-    
-    if not success:
-        print("Processing failed")
-        sys.exit(1)
-    
-    print("=" * 60)
-    print("DOCUMENT AI PROCESSING COMPLETED")
-    print("=" * 60)
-    sys.exit(0)
