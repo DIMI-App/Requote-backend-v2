@@ -33,6 +33,8 @@ Return ONLY valid JSON, no other text."""
 
 # Send request to GPT (0.28 syntax)
 try:
+    print("🤖 Calling OpenAI to extract items...")
+    
     response = openai.ChatCompletion.create(
         model="gpt-3.5-turbo",
         messages=[
@@ -45,13 +47,29 @@ try:
     # Get GPT output
     structured_data = response['choices'][0]['message']['content']
     
-    # Save result to file
-    os.makedirs("outputs", exist_ok=True)
-    with open("outputs/items_offer1.json", "w", encoding="utf-8") as f:
-        f.write(structured_data)
+    print(f"📥 Received response from OpenAI ({len(structured_data)} chars)")
     
-    print("✅ Structured data saved to: outputs/items_offer1.json")
+    # Clean the response - remove markdown code blocks if present
+    structured_data = structured_data.strip()
     
-except Exception as e:
-    print(f"❌ Error calling OpenAI: {e}")
-    raise
+    # Remove markdown code blocks
+    if structured_data.startswith('```json'):
+        structured_data = structured_data[7:]
+        print("🧹 Removed ```json wrapper")
+    elif structured_data.startswith('```'):
+        structured_data = structured_data[3:]
+        print("🧹 Removed ``` wrapper")
+    
+    if structured_data.endswith('```'):
+        structured_data = structured_data[:-3]
+        print("🧹 Removed trailing ```")
+    
+    structured_data = structured_data.strip()
+    
+    # Validate it's actual JSON
+    try:
+        json_test = json.loads(structured_data)
+        items_count = len(json_test.get('items', []))
+        print(f"✅ Validated JSON with {items_count} items")
+    except json.JSONDecodeError as e:
+        print(f"⚠️  JSON validation failed: {e}")
