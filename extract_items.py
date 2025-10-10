@@ -1,9 +1,9 @@
 import os
 import json
-from openai import OpenAI
+import openai
 
-# Initialize OpenAI client (v1.0+ syntax)
-client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+# Set API key
+openai.api_key = os.environ.get("OPENAI_API_KEY")
 
 # Read the parsed text
 with open("outputs/parsed_offer1.txt", "r", encoding="utf-8") as file:
@@ -31,9 +31,9 @@ Return JSON with this structure:
 
 Return ONLY valid JSON, no other text."""
 
-# Send request to GPT (v1.0+ syntax)
+# Send request to GPT (0.28 syntax)
 try:
-    response = client.chat.completions.create(
+    response = openai.ChatCompletion.create(
         model="gpt-3.5-turbo",
         messages=[
             {"role": "system", "content": system_prompt},
@@ -43,7 +43,7 @@ try:
     )
     
     # Get GPT output
-    structured_data = response.choices[0].message.content
+    structured_data = response['choices'][0]['message']['content']
     
     # Save result to file
     os.makedirs("outputs", exist_ok=True)
