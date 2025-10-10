@@ -1,79 +1,144 @@
 import os
+import sys
 import json
 import openai
 
-# Set API key
-openai.api_key = os.environ.get("OPENAI_API_KEY")
+# OpenAI API key from environment
+openai.api_key = os.environ.get('OPENAI_API_KEY')
 
-# Read the parsed text
-with open("outputs/parsed_offer1.txt", "r", encoding="utf-8") as file:
-    raw_text = file.read()
-
-# Set the prompts
-system_prompt = "You are an expert data extractor. From unstructured supplier offer text, extract structured data as JSON."
-
-user_prompt = f"""Extract items from this offer:
-
-{raw_text}
-
-Return JSON with this structure:
-{{
-  "items": [
-    {{
-      "name": "product name",
-      "description": "description", 
-      "quantity": "quantity with unit",
-      "unit": "unit",
-      "price": "price with currency"
-    }}
-  ]
-}}
-
-Return ONLY valid JSON, no other text."""
-
-# Send request to GPT (0.28 syntax)
-try:
-    print("🤖 Calling OpenAI to extract items...")
-    
-    response = openai.ChatCompletion.create(
-        model="gpt-3.5-turbo",
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
-        temperature=0.0,
-    )
-    
-    # Get GPT output
-    structured_data = response['choices'][0]['message']['content']
-    
-    print(f"📥 Received response from OpenAI ({len(structured_data)} chars)")
-    
-    # Clean the response - remove markdown code blocks if present
-    structured_data = structured_data.strip()
-    
-    # Remove markdown code blocks
-    if structured_data.startswith('```json'):
-        structured_data = structured_data[7:]
-        print("🧹 Removed ```json wrapper")
-    elif structured_data.startswith('```'):
-        structured_data = structured_data[3:]
-        print("🧹 Removed ``` wrapper")
-    
-    if structured_data.endswith('```'):
-        structured_data = structured_data[:-3]
-        print("🧹 Removed trailing ```")
-    
-    structured_data = structured_data.strip()
- 
-    # Validate it's actual JSON
+def extract_items_from_text(text, output_path):
+    """
+    Extract structured items from quotation text using OpenAI GPT-3.5
+    """
     try:
-        json_test = json.loads(structured_data)
-        items_count = len(json_test.get('items', []))
-        print(f"✅ Validated JSON with {items_count} items")
-    except json.JSONDecodeError as e:
-        print(f"⚠️  JSON validation failed: {e}")
+        prompt = f"""
+You are an AI assistant that extracts structured data from supplier quotations.
 
-except Exception as e:
-    print(f"❌ Error during OpenAI extraction: {e}")
-    structured_data = "{}"   # fallback to empty JSON if needed
+Given the following quotation text, extract all items/products with their details.
+
+For each item, extract:
+- Item name/description
+- Quantity
+- Unit price
+- Total price (if available)
+- Any other relevant details (SKU, part number, etc.)
+
+Return the data as a JSON array with this structure:
+[
+  {{
+    "item_name": "Product name",
+    "quantity": "number with unit",
+    "unit_price": "price",
+    "total_price": "price",
+    "details": "any additional info"
+  }}
+]
+
+Quotation text:
+{text}
+
+Return ONLY the JSON array, no additional text.
+"""
+        
+        print("🔄 Calling OpenAI to extract items...")
+        
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": "You are a data extraction assistant. Return only valid JSON."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0,
+            max_tokens=2000
+        )
+        
+        print("📨 Received response from OpenAI")
+        
+        # Extract the JSON from response
+        extracted_json = response.choices[0].message.content.strip()
+        
+        print(f"📝 Raw response length: {len(extracted_json)} characters")
+        
+        # Clean up the response (remove markdown code blocks if present)
+        if extracted_json.startswith("```json"):
+            print("🔧 Removed ```json wrapper")
+            extracted_json = extracted_json.replace("```json", "").replace("```", "").strip()
+        elif extracted_json.startswith("```"):
+            print("🔧 Removed ``` wrapper")
+            extracted_json = extracted_json.replace("```", "").strip()
+        
+        # Parse to validate JSON
+        items = json.loads(extracted_json)
+        
+        print(f"✅ Validated JSON with {len(items)} items")
+        
+        # Ensure output directory exists
+        output_dir = os.path.dirname(output_path)
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
+            print(f"📁 Ensured directory exists: {output_dir}")
+        
+        # Save to file with absolute path
+        print(f"💾 Saving to: {output_path}")
+        with open(output_path, 'w', encoding='utf-8') as f:
+            json.dump(items, f, indent=2, ensure_ascii=False)
+        
+        # Verify file was created
+        if os.path.exists(output_path):
+            file_size = os.path.getsize(output_path)
+            print(f"✅ File created successfully! Size: {file_size} bytes")
+        else:
+            print(f"❌ ERROR: File was not created at {output_path}")
+            return False
+        
+        print(f"✅ Successfully extracted {len(items)} items")
+        return True
+        
+    except json.JSONDecodeError as e:
+        print(f"❌ JSON parsing error: {str(e)}")
+        print(f"Raw response: {extracted_json}")
+        return False
+    except Exception as e:
+        print(f"❌ Error during extraction: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+if __name__ == "__main__":
+    print("=" * 60)
+    print("STARTING ITEM EXTRACTION")
+    print("=" * 60)
+    
+    # Accept input and output paths as command-line arguments
+    if len(sys.argv) != 3:
+        print("❌ ERROR: Wrong number of arguments")
+        print("Usage: python extract_items.py <input_text_path> <output_json_path>")
+        sys.exit(1)
+    
+    input_text_path = sys.argv[1]
+    output_json_path = sys.argv[2]
+    
+    print(f"📖 Input file: {input_text_path}")
+    print(f"💾 Output file: {output_json_path}")
+    
+    # Read input text
+    if not os.path.exists(input_text_path):
+        print(f"❌ Input file not found: {input_text_path}")
+        sys.exit(1)
+    
+    with open(input_text_path, 'r', encoding='utf-8') as f:
+        text = f.read()
+    
+    print(f"✅ Read {len(text)} characters from input file")
+    
+    # Extract items
+    success = extract_items_from_text(text, output_json_path)
+    
+    if not success:
+        print("❌ Extraction failed")
+        sys.exit(1)
+    
+    print("=" * 60)
+    print("✅ EXTRACTION COMPLETED SUCCESSFULLY")
+    print("=" * 60)
+    sys.exit(0)
