@@ -2,19 +2,19 @@ from google.cloud import documentai_v1 as documentai
 import os
 import json
 import tempfile
+import sys
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_FOLDER = os.path.join(BASE_DIR, 'uploads')
 OUTPUT_FOLDER = os.path.join(BASE_DIR, 'outputs')
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
-def process_offer1(file_path):
-    """
-    Process Offer 1 (supplier quotation) using Google Document AI
-    """
+def process_and_save():
+    """Process PDF and save extracted text"""
     
     # Setup Google Cloud Credentials
     creds_json = os.getenv('GOOGLE_APPLICATION_CREDENTIALS_JSON')
+    temp_creds_path = None
     
     if creds_json:
         try:
@@ -27,6 +27,7 @@ def process_offer1(file_path):
             print("Using credentials from environment variable")
         except Exception as e:
             print("Error setting up credentials: " + str(e))
+            return False
     
     # Configure Document AI
     project_id = os.getenv("GCP_PROJECT_ID")
@@ -36,7 +37,6 @@ def process_offer1(file_path):
     
     print("Processing document with Document AI...")
     print("Project: " + project_id)
-    print("Location: " + location)
     print("Processor: " + processor_id)
     
     # Create Document AI Client
@@ -51,13 +51,14 @@ def process_offer1(file_path):
         print("Document AI client created successfully")
     except Exception as e:
         print("Failed to create Document AI client: " + str(e))
-        raise
+        return False
     
     # Build Processor Name
     name = "projects/" + project_id + "/locations/" + location + "/processors/" + processor_id
-    print("Processor path: " + name)
     
-    # Read File and Process
+    # Read and Process File
+    file_path = os.path.join(UPLOAD_FOLDER, "offer1.pdf")
+    
     try:
         with open(file_path, "rb") as file:
             document = {"content": file.read(), "mime_type": mime_type}
@@ -67,21 +68,42 @@ def process_offer1(file_path):
         request = {"name": name, "raw_document": document}
         result = client.process_document(request=request)
         
+        extracted_text = result.document.text
+        
         print("Document processed successfully!")
-        print("Pages: " + str(len(result.document.pages)))
-        print("Text length: " + str(len(result.document.text)) + " characters")
+        print("Text length: " + str(len(extracted_text)) + " characters")
         
-        return result.document
+        # Save extracted text
+        output_path = os.path.join(OUTPUT_FOLDER, "extracted_text.txt")
+        print("Saving to: " + output_path)
         
-    except FileNotFoundError:
-        print("File not found: " + file_path)
-        raise
+        with open(output_path, "w", encoding="utf-8") as f:
+            f.write(extracted_text)
+        
+        # Verify file was saved
+        if os.path.exists(output_path):
+            file_size = os.path.getsize(output_path)
+            print("SUCCESS: File saved (" + str(file_size) + " bytes)")
+            print("Location: " + output_path)
+            
+            # List files in output folder
+            files = os.listdir(OUTPUT_FOLDER)
+            print("Files in output folder: " + str(files))
+            
+            return True
+        else:
+            print("ERROR: File was not created")
+            return False
+        
     except Exception as e:
-        print("Error processing document: " + str(e))
-        raise
+        print("Error: " + str(e))
+        import traceback
+        traceback.print_exc()
+        return False
+    
     finally:
         # Clean up temporary credentials file
-        if creds_json and 'temp_creds_path' in locals():
+        if temp_creds_path:
             try:
                 os.unlink(temp_creds_path)
                 print("Cleaned up temporary credentials file")
@@ -89,28 +111,19 @@ def process_offer1(file_path):
                 pass
 
 if __name__ == "__main__":
-    file_path = os.path.join(UPLOAD_FOLDER, "offer1.pdf")
+    print("=" * 60)
+    print("STARTING DOCUMENT AI PROCESSING")
+    print("=" * 60)
     
-    if os.path.exists(file_path):
-        print("Starting Document AI processing...")
-        try:
-            doc_result = process_offer1(file_path)
-            parsed_text = doc_result.text
-            
-            # Save to output
-            output_path = os.path.join(OUTPUT_FOLDER, "extracted_text.txt")
-            
-            with open(output_path, "w", encoding="utf-8") as f:
-                f.write(parsed_text)
-            
-            print("Parsed text saved to: " + output_path)
-            print("Preview (first 500 chars):")
-            print(parsed_text[:500])
-            
-        except Exception as e:
-            print("Processing failed: " + str(e))
-            import traceback
-            traceback.print_exc()
+    success = process_and_save()
+    
+    if success:
+        print("=" * 60)
+        print("COMPLETED SUCCESSFULLY")
+        print("=" * 60)
+        sys.exit(0)
     else:
-        print("File not found: " + file_path)
-        print("Please upload a PDF file to the uploads folder first")
+        print("=" * 60)
+        print("FAILED")
+        print("=" * 60)
+        sys.exit(1)
