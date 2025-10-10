@@ -24,7 +24,8 @@ env/
 Thumbs.db
 
 # Outputs (contains processed files)
-outputs/
+outputs/*
+!outputs/.gitkeep
 uploads/
 *.docx
 *.pdf
