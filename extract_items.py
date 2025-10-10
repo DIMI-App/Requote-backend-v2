@@ -72,4 +72,4 @@ try:
         items_count = len(json_test.get('items', []))
         print(f"✅ Validated JSON with {items_count} items")
     except json.JSONDecodeError as e:
-        print(f"⚠️  JSON validation failed: {e}")
+            print(f"⚠️  JSON validation failed: {e}")
