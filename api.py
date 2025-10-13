@@ -44,6 +44,18 @@ def api_process_offer1():
     try:
         print("📤 Received request to process Offer 1")
         
+        # === STEP 0: Clear old extraction files ===
+        print("🧹 Clearing old extraction data...")
+        old_files = [
+            os.path.join(OUTPUT_FOLDER, 'extracted_text.txt'),
+            os.path.join(OUTPUT_FOLDER, 'items_offer1.json'),
+            os.path.join(UPLOAD_FOLDER, 'offer1.pdf')
+        ]
+        for old_file in old_files:
+            if os.path.exists(old_file):
+                os.remove(old_file)
+                print(f"   ✓ Deleted: {os.path.basename(old_file)}")
+        
         # Check if file was uploaded
         if 'file' not in request.files:
             return jsonify({'error': 'No file uploaded'}), 400
@@ -118,7 +130,7 @@ def api_process_offer1():
         
         print("✅ Extraction complete")
         
-        # Step 3: Load extracted items with absolute path
+        # Step 3: Load extracted data with absolute path
         if not os.path.exists(items_output_path):
             print(f"❌ Items file not found at: {items_output_path}")
             print(f"📁 Files in output folder: {os.listdir(OUTPUT_FOLDER)}")
@@ -129,7 +141,10 @@ def api_process_offer1():
             }), 500
         
         with open(items_output_path, 'r', encoding='utf-8') as f:
-            items = json.load(f)
+            full_data = json.load(f)
+        
+        # Extract items array from new structure
+        items = full_data.get('items', [])
         
         print(f"✅ Extracted {len(items)} items")
         
@@ -137,6 +152,7 @@ def api_process_offer1():
             'success': True,
             'items_count': len(items),
             'items': items,
+            'full_data': full_data,
             'message': f'Successfully extracted {len(items)} items'
         })
         
@@ -168,6 +184,12 @@ def api_upload_offer2():
         
         # Save as offer2_template.docx with absolute path
         filepath = os.path.join(BASE_DIR, 'offer2_template.docx')
+        
+        # Delete old template if exists
+        if os.path.exists(filepath):
+            os.remove(filepath)
+            print(f"   ✓ Deleted old template")
+        
         file.save(filepath)
         
         print(f"✅ Template saved: {filepath}")
@@ -207,13 +229,16 @@ def api_generate_offer():
         if markup > 0:
             print(f"💰 Applying {markup}% markup...")
             with open(items_path, 'r', encoding='utf-8') as f:
-                items = json.load(f)
+                full_data = json.load(f)
             
+            # Apply markup to items
+            items = full_data.get('items', [])
             items = apply_markup_to_items(items, markup)
+            full_data['items'] = items
             
-            # Save updated items
+            # Save updated data
             with open(items_path, 'w', encoding='utf-8') as f:
-                json.dump(items, f, ensure_ascii=False, indent=2)
+                json.dump(full_data, f, ensure_ascii=False, indent=2)
         
         # Run the generation script with absolute path
         print("📝 Generating final offer...")
@@ -238,7 +263,8 @@ def api_generate_offer():
         
         # Load items count for response
         with open(items_path, 'r', encoding='utf-8') as f:
-            items = json.load(f)
+            full_data = json.load(f)
+            items = full_data.get('items', [])
         
         print(f"✅ Final offer generated successfully")
         
@@ -288,7 +314,11 @@ def apply_markup_to_items(items, markup_percent):
     import re
     
     for item in items:
-        price_str = str(item.get('price', ''))
+        # Try unit_price first
+        price_str = str(item.get('unit_price', ''))
+        if not price_str or price_str == '':
+            price_str = str(item.get('price', ''))
+        
         # Extract numeric value
         numbers = re.findall(r'\d+\.?\d*', price_str)
         if numbers:
@@ -297,7 +327,9 @@ def apply_markup_to_items(items, markup_percent):
             # Replace price in original format
             currency = re.findall(r'[€$£¥]', price_str)
             currency_symbol = currency[0] if currency else '€'
-            item['price'] = f"{currency_symbol}{new_price:.2f}"
+            item['unit_price'] = f"{currency_symbol}{new_price:.2f}"
+            if 'price' in item:
+                item['price'] = f"{currency_symbol}{new_price:.2f}"
     
     return items
 
