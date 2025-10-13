@@ -7,7 +7,13 @@ from werkzeug.utils import secure_filename
 from docx import Document
 
 app = Flask(__name__)
-CORS(app)  # Allow requests from Lovable
+CORS(app, resources={
+    r"/*": {
+        "origins": "*",
+        "methods": ["GET", "POST", "OPTIONS"],
+        "allow_headers": ["Content-Type"]
+    }
+})  # Allow requests from Lovable
 
 # Get the absolute path of the project directory
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
