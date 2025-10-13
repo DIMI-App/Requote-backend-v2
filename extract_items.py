@@ -51,6 +51,14 @@ def find_pricing_sections(text):
     return sections
 
 def extract_items_from_text(text, output_path):
+    """Extract structured items from raw offer text.
+
+    Returns
+    -------
+    tuple[bool, dict | None]
+        ``(True, None)`` if extraction succeeds, otherwise ``(False, error)``
+        where ``error`` contains diagnostic information for the caller.
+    """
     try:
         print(f"📄 Total text length: {len(text)} characters")
         
@@ -172,13 +180,21 @@ Extract ALL pricing items. Return ONLY the JSON array.
         return False
     except json.JSONDecodeError as e:
         print(f"❌ JSON parsing error: {str(e)}")
-        print(f"Response was: {extracted_json[:500]}")
-        return False
+        snippet = extracted_json[:500] if 'extracted_json' in locals() else ''
+        if snippet:
+            print(f"Response was: {snippet}")
+        return False, {
+            "type": "json_error",
+            "message": str(e),
+        }
     except Exception as e:
         print(f"❌ Error during extraction: {str(e)}")
         import traceback
         traceback.print_exc()
-        return False
+        return False, {
+            "type": "unexpected",
+            "message": str(e),
+        }
 
 if __name__ == "__main__":
     if len(sys.argv) != 3:
@@ -197,6 +213,9 @@ if __name__ == "__main__":
     
     print(f"✅ Read {len(text)} characters from input file")
     
-    success = extract_items_from_text(text, output_json_path)
-    
+    success, error = extract_items_from_text(text, output_json_path)
+
+    if not success and error:
+        print(f"❌ Extraction failed: {error.get('message', 'Unknown error')}")
+
     sys.exit(0 if success else 1)
