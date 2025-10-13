@@ -189,6 +189,14 @@ Extract ALL pricing items. Return ONLY the JSON array.
         if status:
             print(f"   HTTP status: {status}")
         return False, error_info
+        return True
+        
+    except openai.error.Timeout:
+        print("❌ OpenAI request timed out")
+        return False
+    except openai.error.OpenAIError as e:
+        print(f"❌ OpenAI API error: {str(e)}")
+        return False
     except json.JSONDecodeError as e:
         print(f"❌ JSON parsing error: {str(e)}")
         snippet = extracted_json[:500] if 'extracted_json' in locals() else ''
