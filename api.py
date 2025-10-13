@@ -7,7 +7,6 @@ from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
 
-# Fix CORS
 CORS(app, resources={
     r"/*": {
         "origins": "*",
@@ -53,7 +52,6 @@ def api_process_offer1():
         
         print(f"✅ File saved: {filepath}")
         
-        # Process with Document AI
         print("🔍 Processing with Document AI...")
         test_process_path = os.path.join(BASE_DIR, 'test_process.py')
         result = subprocess.run(
@@ -69,7 +67,6 @@ def api_process_offer1():
         
         print("✅ Document AI complete")
         
-        # Extract items with OpenAI
         print("🤖 Extracting items with OpenAI...")
         
         extracted_text_path = os.path.join(OUTPUT_FOLDER, 'extracted_text.txt')
@@ -77,10 +74,8 @@ def api_process_offer1():
         extract_items_path = os.path.join(BASE_DIR, 'extract_items.py')
         
         if not os.path.exists(extracted_text_path):
-            print(f"❌ Extracted text file not found: {extracted_text_path}")
+            print(f"❌ Extracted text file not found")
             return jsonify({'error': 'Extracted text file not found'}), 500
-        
-        print(f"✅ Found extracted text file")
         
         result = subprocess.run(
             ['python', extract_items_path, extracted_text_path, items_output_path],
@@ -90,16 +85,15 @@ def api_process_offer1():
         )
         
         print(f"STDOUT: {result.stdout}")
-        print(f"STDERR: {result.stderr}")
+        if result.stderr:
+            print(f"STDERR: {result.stderr}")
         
         if result.returncode != 0:
-            print(f"❌ OpenAI extraction failed")
             return jsonify({'error': 'Item extraction failed', 'details': result.stderr}), 500
         
         print("✅ Extraction complete")
         
         if not os.path.exists(items_output_path):
-            print(f"❌ Items file not found")
             return jsonify({'error': 'Items file not created'}), 500
         
         with open(items_output_path, 'r', encoding='utf-8') as f:
@@ -154,52 +148,75 @@ def api_upload_offer2():
 @app.route('/api/generate-offer', methods=['POST'])
 def api_generate_offer():
     try:
-        print("🔄 Starting offer generation...")
+        print("=" * 60)
+        print("🔄 GENERATE OFFER - DETAILED DEBUG")
+        print("=" * 60)
         
         data = request.get_json() or {}
         markup = data.get('markup', 0)
         
         items_path = os.path.join(OUTPUT_FOLDER, 'items_offer1.json')
+        template_path = os.path.join(BASE_DIR, 'offer2_template.docx')
+        
+        print(f"\n📋 Checking files...")
+        print(f"   Items: {os.path.exists(items_path)}")
+        print(f"   Template: {os.path.exists(template_path)}")
+        
         if not os.path.exists(items_path):
-            return jsonify({'error': 'No items found. Please process Offer 1 first.'}), 400
+            return jsonify({'error': 'No items found. Process Offer 1 first.'}), 400
+        
+        if not os.path.exists(template_path):
+            return jsonify({'error': 'No template found. Upload Offer 2 first.'}), 400
+        
+        with open(items_path, 'r', encoding='utf-8') as f:
+            full_data = json.load(f)
+        
+        items = full_data.get('items', [])
+        print(f"   Items count: {len(items)}")
+        
+        if len(items) == 0:
+            return jsonify({'error': 'Items array is empty'}), 400
         
         if markup > 0:
-            print(f"💰 Applying {markup}% markup...")
-            with open(items_path, 'r', encoding='utf-8') as f:
-                full_data = json.load(f)
-            
-            items = full_data.get('items', [])
+            print(f"\n💰 Applying {markup}% markup...")
             items = apply_markup_to_items(items, markup)
             full_data['items'] = items
             
             with open(items_path, 'w', encoding='utf-8') as f:
                 json.dump(full_data, f, ensure_ascii=False, indent=2)
         
-        print("📝 Generating final offer...")
+        print("\n📝 Running generation script...")
         generate_script_path = os.path.join(BASE_DIR, 'generate_offer_doc.py')
         
         result = subprocess.run(
             ['python', generate_script_path],
             capture_output=True,
             text=True,
-            cwd=BASE_DIR
+            cwd=BASE_DIR,
+            timeout=30
         )
         
-        if result.returncode != 0:
-            print(f"Error: {result.stderr}")
-            return jsonify({'error': 'Offer generation failed', 'details': result.stderr}), 500
+        print(f"   Return code: {result.returncode}")
         
-        print(result.stdout)
+        if result.stdout:
+            print(f"\n📤 STDOUT:\n{result.stdout}")
+        
+        if result.stderr:
+            print(f"\n📤 STDERR:\n{result.stderr}")
+        
+        if result.returncode != 0:
+            error_msg = result.stderr or result.stdout or "Unknown error"
+            return jsonify({
+                'error': 'Generation failed',
+                'details': error_msg
+            }), 500
         
         output_path = os.path.join(OUTPUT_FOLDER, 'final_offer1.docx')
+        
         if not os.path.exists(output_path):
-            return jsonify({'error': 'Output file not generated'}), 500
+            return jsonify({'error': 'Output file not created'}), 500
         
-        with open(items_path, 'r', encoding='utf-8') as f:
-            full_data = json.load(f)
-            items = full_data.get('items', [])
-        
-        print(f"✅ Final offer generated successfully")
+        print(f"\n✅ SUCCESS")
         
         return jsonify({
             'success': True,
@@ -208,6 +225,8 @@ def api_generate_offer():
             'items_count': len(items)
         })
         
+    except subprocess.TimeoutExpired:
+        return jsonify({'error': 'Generation timed out'}), 500
     except Exception as e:
         print(f"❌ Error: {str(e)}")
         import traceback
@@ -238,7 +257,7 @@ def apply_markup_to_items(items, markup_percent):
     
     for item in items:
         price_str = str(item.get('unit_price', ''))
-        if not price_str or price_str == '':
+        if not price_str:
             price_str = str(item.get('price', ''))
         
         numbers = re.findall(r'\d+\.?\d*', price_str)
@@ -255,5 +274,5 @@ def apply_markup_to_items(items, markup_percent):
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    print("🚀 Starting Requote AI Backend Server...")
+    print("🚀 Starting Requote AI Backend...")
     app.run(debug=True, host='0.0.0.0', port=port)
