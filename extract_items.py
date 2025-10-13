@@ -4,6 +4,11 @@ import json
 import openai
 import re
 
+try:
+    OPENAI_TIMEOUT = int(os.getenv("OPENAI_TIMEOUT", "60"))
+except ValueError:
+    OPENAI_TIMEOUT = 60
+
 openai.api_key = os.environ.get('OPENAI_API_KEY')
 
 def find_pricing_sections(text):
@@ -112,7 +117,8 @@ Extract ALL pricing items. Return ONLY the JSON array.
                 {"role": "user", "content": prompt}
             ],
             temperature=0,
-            max_tokens=3000  # Increased for more items
+            max_tokens=3000,  # Increased for more items
+            request_timeout=OPENAI_TIMEOUT
         )
         
         print("📨 Received response from OpenAI")
@@ -158,6 +164,12 @@ Extract ALL pricing items. Return ONLY the JSON array.
         print(f"✅ Successfully extracted {len(items)} items")
         return True
         
+    except openai.error.Timeout:
+        print("❌ OpenAI request timed out")
+        return False
+    except openai.error.OpenAIError as e:
+        print(f"❌ OpenAI API error: {str(e)}")
+        return False
     except json.JSONDecodeError as e:
         print(f"❌ JSON parsing error: {str(e)}")
         print(f"Response was: {extracted_json[:500]}")
