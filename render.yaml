@@ -2,19 +2,14 @@ services:
   - type: web
     name: requote-ai-backend
     runtime: python
-    pythonVersion: 3.11.0
     buildCommand: pip install -r requirements.txt
-
-    # Start Gunicorn with extended timeout and one worker (adjust as needed)
-    startCommand: gunicorn api:app --timeout 120 --workers 1 --threads 2 --preload
-
+    startCommand: gunicorn api:app --timeout 180 --workers 1 --threads 2 --preload
     envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
       - key: GOOGLE_APPLICATION_CREDENTIALS
         sync: false
-
       - key: OPENAI_API_KEY
         sync: false
-
-    # Optional: configure Render health checks and instance type
     plan: free
     autoDeploy: true
