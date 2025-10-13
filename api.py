@@ -18,7 +18,11 @@ CORS(app, resources={
     r"/*": {
         "origins": "*",
         "methods": ["GET", "POST", "OPTIONS"],
-        "allow_headers": ["Content-Type"]
+        "allow_headers": [
+            "Content-Type",
+            "access-control-allow-origin",
+            "Access-Control-Allow-Origin",
+        ],
     }
 })
 
@@ -90,13 +94,18 @@ def api_process_offer1():
         
         print(f"✅ Extracted {len(items)} items")
         
-        return jsonify({
+        response_payload = {
             'success': True,
             'items_count': len(items),
             'items': items,
             'full_data': full_data,
             'message': f'Successfully extracted {len(items)} items'
-        })
+        }
+
+        if diagnostics:
+            response_payload['diagnostics'] = diagnostics
+
+        return jsonify(response_payload)
         
     except Exception as e:
         print(f"❌ Error: {str(e)}")
