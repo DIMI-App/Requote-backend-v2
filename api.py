@@ -4,6 +4,10 @@ import os
 import json
 import subprocess
 from werkzeug.utils import secure_filename
+from werkzeug.exceptions import RequestEntityTooLarge
+
+from extract_items import extract_items_from_text
+from process_offer1 import extract_offer1_text, save_text_to_file
 
 app = Flask(__name__)
 
@@ -11,7 +15,11 @@ CORS(app, resources={
     r"/*": {
         "origins": "*",
         "methods": ["GET", "POST", "OPTIONS"],
-        "allow_headers": ["Content-Type"]
+        "allow_headers": [
+            "Content-Type",
+            "access-control-allow-origin",
+            "Access-Control-Allow-Origin",
+        ],
     }
 })
 
@@ -23,7 +31,12 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
+app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024
+
+
+@app.errorhandler(RequestEntityTooLarge)
+def handle_file_too_large(error):
+    return jsonify({'error': 'Uploaded file is too large'}), 413
 
 @app.route('/', methods=['GET'])
 def home():
@@ -52,45 +65,45 @@ def api_process_offer1():
         
         print(f"✅ File saved: {filepath}")
         
-        print("🔍 Processing with Document AI...")
-        test_process_path = os.path.join(BASE_DIR, 'test_process.py')
-        result = subprocess.run(
-            ['python', test_process_path],
-            capture_output=True,
-            text=True,
-            cwd=BASE_DIR
-        )
-        
-        if result.returncode != 0:
-            print(f"❌ Document AI Error: {result.stderr}")
-            return jsonify({'error': 'Document AI processing failed', 'details': result.stderr}), 500
-        
-        print("✅ Document AI complete")
-        
-        print("🤖 Extracting items with OpenAI...")
-        
+        print("🔍 Processing Offer 1 with Document AI (with fallback)...")
+        extracted_text, diagnostics = extract_offer1_text(filepath)
+
+        if not extracted_text.strip():
+            error_payload = {'error': 'Failed to extract text from Offer 1'}
+            if diagnostics:
+                error_payload['details'] = diagnostics
+                doc_error = diagnostics.get('document_ai_error')
+                if doc_error and doc_error.get('type') in {
+                    'document_ai_permission',
+                    'document_ai_unauthenticated',
+                }:
+                    return jsonify(error_payload), 503
+            return jsonify(error_payload), 500
+
         extracted_text_path = os.path.join(OUTPUT_FOLDER, 'extracted_text.txt')
+        save_text_to_file(extracted_text, extracted_text_path)
+
+        print("✅ Text extraction complete")
+
+        print("🤖 Extracting items with OpenAI...")
+
         items_output_path = os.path.join(OUTPUT_FOLDER, 'items_offer1.json')
-        extract_items_path = os.path.join(BASE_DIR, 'extract_items.py')
-        
-        if not os.path.exists(extracted_text_path):
-            print(f"❌ Extracted text file not found")
-            return jsonify({'error': 'Extracted text file not found'}), 500
-        
-        result = subprocess.run(
-            ['python', extract_items_path, extracted_text_path, items_output_path],
-            capture_output=True,
-            text=True,
-            cwd=BASE_DIR
-        )
-        
-        print(f"STDOUT: {result.stdout}")
-        if result.stderr:
-            print(f"STDERR: {result.stderr}")
-        
-        if result.returncode != 0:
-            return jsonify({'error': 'Item extraction failed', 'details': result.stderr}), 500
-        
+        success, error_info = extract_items_from_text(extracted_text, items_output_path)
+
+        if not success:
+            error_response = {
+                'error': 'Item extraction failed',
+            }
+
+            if error_info:
+                error_response['details'] = error_info
+
+                if error_info.get('type') == 'openai_error' and error_info.get('status') == 429:
+                    error_response['error'] = 'OpenAI quota exceeded'
+                    return jsonify(error_response), 429
+
+            return jsonify(error_response), 500
+
         print("✅ Extraction complete")
         
         if not os.path.exists(items_output_path):
@@ -103,13 +116,18 @@ def api_process_offer1():
         
         print(f"✅ Extracted {len(items)} items")
         
-        return jsonify({
+        response_payload = {
             'success': True,
             'items_count': len(items),
             'items': items,
             'full_data': full_data,
             'message': f'Successfully extracted {len(items)} items'
-        })
+        }
+
+        if diagnostics:
+            response_payload['diagnostics'] = diagnostics
+
+        return jsonify(response_payload)
         
     except Exception as e:
         print(f"❌ Error: {str(e)}")
