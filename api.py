@@ -9,6 +9,9 @@ from werkzeug.exceptions import RequestEntityTooLarge
 from extract_items import extract_items_from_text
 from process_offer1 import extract_offer1_text, save_text_to_file
 
+from extract_items import extract_items_from_text
+from process_offer1 import extract_offer1_text, save_text_to_file
+
 app = Flask(__name__)
 
 CORS(app, resources={
@@ -80,6 +83,10 @@ def api_process_offer1():
                 }:
                     return jsonify(error_payload), 503
             return jsonify(error_payload), 500
+        extracted_text = extract_offer1_text(filepath)
+
+        if not extracted_text.strip():
+            return jsonify({'error': 'Failed to extract text from Offer 1'}), 500
 
         extracted_text_path = os.path.join(OUTPUT_FOLDER, 'extracted_text.txt')
         save_text_to_file(extracted_text, extracted_text_path)
@@ -104,6 +111,10 @@ def api_process_offer1():
                     return jsonify(error_response), 429
 
             return jsonify(error_response), 500
+        success = extract_items_from_text(extracted_text, items_output_path)
+
+        if not success:
+            return jsonify({'error': 'Item extraction failed'}), 500
 
         print("✅ Extraction complete")
         

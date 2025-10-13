@@ -3,6 +3,10 @@ import json
 import os
 import tempfile
 from typing import Any, Dict, Optional, Tuple
+import json
+import os
+import tempfile
+from typing import Optional
 
 from google.api_core import exceptions as google_exceptions
 from google.api_core.client_options import ClientOptions
@@ -76,6 +80,36 @@ def _setup_credentials() -> Optional[str]:
     raise DocumentAICredentialsError(
         "No Document AI credentials configured. Set GOOGLE_APPLICATION_CREDENTIALS_JSON or GOOGLE_APPLICATION_CREDENTIALS."
     )
+
+
+def process_offer1(file_path: str, timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS):
+    """Run Document AI on the supplied PDF and return the processed document."""
+    temp_creds_path = _setup_credentials()
+
+
+DEFAULT_TIMEOUT_SECONDS = int(os.getenv("DOCUMENT_AI_TIMEOUT", "65"))
+
+
+def _setup_credentials() -> Optional[str]:
+    """Prepare Google Cloud credentials and return the temp file path if used."""
+    creds_json = os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON")
+
+    if not creds_json:
+        print("ℹ️  Using GOOGLE_APPLICATION_CREDENTIALS file path from environment")
+        return None
+
+    try:
+        creds_dict = json.loads(creds_json)
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".json") as temp_creds:
+            json.dump(creds_dict, temp_creds)
+            temp_creds_path = temp_creds.name
+
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = temp_creds_path
+        print("✅ Using credentials provided via GOOGLE_APPLICATION_CREDENTIALS_JSON")
+        return temp_creds_path
+    except Exception as exc:  # pragma: no cover - defensive
+        print(f"⚠️  Failed to configure credentials from JSON: {exc}")
+        return None
 
 
 def process_offer1(file_path: str, timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS):
@@ -193,6 +227,20 @@ def extract_offer1_text(
         "used_fallback": False,
     }
     document_ai_error: Optional[Dict[str, Any]] = None
+def _fallback_extract_text(file_path: str) -> str:
+    """Extract text locally from the PDF using pdfminer as a fallback."""
+    print("⚠️  Falling back to local PDF text extraction (pdfminer)")
+    try:
+        text = pdfminer_extract_text(file_path)
+        print(f"✅ Fallback extracted {len(text)} characters")
+        return text
+    except Exception as exc:  # pragma: no cover - dependency
+        print(f"❌ Fallback extraction failed: {exc}")
+        return ""
+
+
+def extract_offer1_text(file_path: str, timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS) -> str:
+    """Attempt Document AI extraction and fall back to local parsing on failure."""
     try:
         document = process_offer1(file_path, timeout_seconds=timeout_seconds)
         text = getattr(document, "text", "") or ""
@@ -237,6 +285,14 @@ def extract_offer1_text(
     diagnostics["used_fallback"] = True
     diagnostics["fallback_characters"] = len(fallback_text)
     return fallback_text, diagnostics
+            return text
+        print("⚠️  Document AI returned empty text. Using fallback extractor.")
+    except google_exceptions.DeadlineExceeded:
+        print("⏱️  Document AI request exceeded timeout. Using fallback extractor.")
+    except Exception as exc:  # pragma: no cover - network dependency
+        print(f"❌ Document AI processing failed: {exc}")
+
+    return _fallback_extract_text(file_path)
 
 
 def save_text_to_file(text: str, output_path: str) -> None:
@@ -261,6 +317,10 @@ def process_offer1_and_save(
                 "   Document AI error:",
                 diagnostics["document_ai_error"].get("message", "unknown"),
             )
+def process_offer1_and_save(file_path: str, output_path: str, timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS) -> bool:
+    text = extract_offer1_text(file_path, timeout_seconds=timeout_seconds)
+    if not text.strip():
+        print("❌ No text extracted from Offer 1")
         return False
 
     save_text_to_file(text, output_path)
