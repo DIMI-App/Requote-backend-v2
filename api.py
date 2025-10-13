@@ -36,6 +36,11 @@ os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024
 
+
+@app.errorhandler(RequestEntityTooLarge)
+def handle_file_too_large(error):
+    return jsonify({'error': 'Uploaded file is too large'}), 413
+
 @app.route('/', methods=['GET'])
 def home():
     return jsonify({
@@ -64,6 +69,20 @@ def api_process_offer1():
         print(f"✅ File saved: {filepath}")
         
         print("🔍 Processing Offer 1 with Document AI (with fallback)...")
+        extracted_text, diagnostics = extract_offer1_text(filepath)
+
+        if not extracted_text.strip():
+            error_payload = {'error': 'Failed to extract text from Offer 1'}
+            if diagnostics:
+                error_payload['details'] = diagnostics
+                doc_error = diagnostics.get('document_ai_error')
+                if doc_error and doc_error.get('type') in {
+                    'document_ai_permission',
+                    'document_ai_unauthenticated',
+                    'document_ai_credentials',
+                }:
+                    return jsonify(error_payload), 503
+            return jsonify(error_payload), 500
         extracted_text = extract_offer1_text(filepath)
 
         if not extracted_text.strip():
@@ -77,6 +96,21 @@ def api_process_offer1():
         print("🤖 Extracting items with OpenAI...")
 
         items_output_path = os.path.join(OUTPUT_FOLDER, 'items_offer1.json')
+        success, error_info = extract_items_from_text(extracted_text, items_output_path)
+
+        if not success:
+            error_response = {
+                'error': 'Item extraction failed',
+            }
+
+            if error_info:
+                error_response['details'] = error_info
+
+                if error_info.get('type') == 'openai_error' and error_info.get('status') == 429:
+                    error_response['error'] = 'OpenAI quota exceeded'
+                    return jsonify(error_response), 429
+
+            return jsonify(error_response), 500
         success = extract_items_from_text(extracted_text, items_output_path)
 
         if not success:

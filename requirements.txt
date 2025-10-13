@@ -6,3 +6,4 @@ openai==0.28.0
 werkzeug==3.0.1
 gunicorn==21.2.0
 pdfminer.six==20221105
+pypdf==3.17.4
