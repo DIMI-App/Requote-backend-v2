@@ -42,21 +42,10 @@ def api_process_offer1():
     Returns extracted items as JSON
     """
     try:
-        print("📤 Received request to process Offer 1")
+        print("=" * 60)
+        print("📤 NEW REQUEST: PROCESS OFFER 1")
+        print("=" * 60)
         
-        # === STEP 0: Clear old extraction files ===
-        print("🧹 Clearing old extraction data...")
-        old_files = [
-            os.path.join(OUTPUT_FOLDER, 'extracted_text.txt'),
-            os.path.join(OUTPUT_FOLDER, 'items_offer1.json'),
-            os.path.join(UPLOAD_FOLDER, 'offer1.pdf')
-        ]
-        for old_file in old_files:
-            if os.path.exists(old_file):
-                os.remove(old_file)
-                print(f"   ✓ Deleted: {os.path.basename(old_file)}")
-        
-        # Check if file was uploaded
         if 'file' not in request.files:
             return jsonify({'error': 'No file uploaded'}), 400
         
@@ -65,60 +54,102 @@ def api_process_offer1():
         if file.filename == '':
             return jsonify({'error': 'No file selected'}), 400
         
-        # Save uploaded file with absolute path
+        # === FORCE OVERWRITE OLD PDF ===
         filename = secure_filename(file.filename)
         filepath = os.path.join(UPLOAD_FOLDER, 'offer1.pdf')
-        file.save(filepath)
         
-        print(f"✅ File saved: {filepath}")
+        print(f"💾 Saving new PDF: {filepath}")
+        file.save(filepath)  # This overwrites automatically
         
-        # Step 1: Process with Document AI (call your existing script)
-        print("🔍 Processing with Document AI...")
+        file_size = os.path.getsize(filepath)
+        print(f"✅ File saved: {file_size} bytes")
+        
+        # === FORCE DELETE OLD EXTRACTION FILES ===
+        print("\n🧹 Force clearing old extraction data...")
+        
+        extracted_text_path = os.path.join(OUTPUT_FOLDER, 'extracted_text.txt')
+        items_output_path = os.path.join(OUTPUT_FOLDER, 'items_offer1.json')
+        
+        # Delete old files if they exist
+        for old_file in [extracted_text_path, items_output_path]:
+            if os.path.exists(old_file):
+                try:
+                    os.remove(old_file)
+                    print(f"   ✓ Deleted: {os.path.basename(old_file)}")
+                except Exception as e:
+                    print(f"   ⚠️  Could not delete {os.path.basename(old_file)}: {e}")
+            else:
+                print(f"   • {os.path.basename(old_file)} - not found (OK)")
+        
+        # === VERIFY FILES ARE GONE ===
+        print("\n🔍 Verifying cleanup...")
+        if os.path.exists(extracted_text_path):
+            print(f"   ⚠️  WARNING: {extracted_text_path} still exists!")
+        else:
+            print(f"   ✓ extracted_text.txt is gone")
+            
+        if os.path.exists(items_output_path):
+            print(f"   ⚠️  WARNING: {items_output_path} still exists!")
+        else:
+            print(f"   ✓ items_offer1.json is gone")
+        
+        # === Step 1: Process with Document AI ===
+        print("\n" + "=" * 60)
+        print("🔍 STEP 1: Document AI Processing")
+        print("=" * 60)
+        
         test_process_path = os.path.join(BASE_DIR, 'test_process.py')
         result = subprocess.run(
             ['python', test_process_path],
             capture_output=True,
             text=True,
-            cwd=BASE_DIR
+            cwd=BASE_DIR,
+            timeout=60
         )
         
         if result.returncode != 0:
-            print(f"❌ Document AI Error: {result.stderr}")
-            return jsonify({'error': 'Document AI processing failed', 'details': result.stderr}), 500
+            print(f"❌ Document AI Error")
+            print(f"STDERR: {result.stderr}")
+            return jsonify({
+                'error': 'Document AI processing failed',
+                'details': result.stderr
+            }), 500
         
         print("✅ Document AI complete")
+        print(result.stdout[-500:] if len(result.stdout) > 500 else result.stdout)
         
-        # Step 2: Extract items with OpenAI (call your existing script)
-        print("🤖 Extracting items with OpenAI...")
-        
-        # Define absolute paths for input and output
-        extracted_text_path = os.path.join(OUTPUT_FOLDER, 'extracted_text.txt')
-        items_output_path = os.path.join(OUTPUT_FOLDER, 'items_offer1.json')
-        extract_items_path = os.path.join(BASE_DIR, 'extract_items.py')
-        
-        # Verify extracted text file exists
+        # === Verify extracted text was created ===
         if not os.path.exists(extracted_text_path):
-            print(f"❌ Extracted text file not found: {extracted_text_path}")
-            print(f"📁 Files in output folder: {os.listdir(OUTPUT_FOLDER)}")
+            print(f"❌ CRITICAL: Extracted text not created!")
+            print(f"   Files in outputs: {os.listdir(OUTPUT_FOLDER)}")
             return jsonify({
-                'error': 'Extracted text file not found',
-                'expected_path': extracted_text_path,
+                'error': 'Document AI did not create extracted text',
                 'files_in_output': os.listdir(OUTPUT_FOLDER)
             }), 500
         
-        print(f"✅ Found extracted text file")
-        print(f"📞 Calling: python {extract_items_path} {extracted_text_path} {items_output_path}")
+        text_size = os.path.getsize(extracted_text_path)
+        print(f"✅ Extracted text created: {text_size} bytes")
+        
+        # === Step 2: Extract items with OpenAI ===
+        print("\n" + "=" * 60)
+        print("🤖 STEP 2: OpenAI Item Extraction")
+        print("=" * 60)
+        
+        extract_items_path = os.path.join(BASE_DIR, 'extract_items.py')
         
         result = subprocess.run(
             ['python', extract_items_path, extracted_text_path, items_output_path],
             capture_output=True,
             text=True,
-            cwd=BASE_DIR
+            cwd=BASE_DIR,
+            timeout=60
         )
         
         print(f"Return code: {result.returncode}")
-        print(f"STDOUT: {result.stdout}")
-        print(f"STDERR: {result.stderr}")
+        print(f"STDOUT:\n{result.stdout}")
+        
+        if result.stderr:
+            print(f"STDERR:\n{result.stderr}")
         
         if result.returncode != 0:
             print(f"❌ OpenAI extraction failed")
@@ -128,25 +159,51 @@ def api_process_offer1():
                 'stdout': result.stdout
             }), 500
         
-        print("✅ Extraction complete")
+        print("✅ Extraction script completed")
         
-        # Step 3: Load extracted data with absolute path
+        # === Verify items file was created ===
         if not os.path.exists(items_output_path):
-            print(f"❌ Items file not found at: {items_output_path}")
-            print(f"📁 Files in output folder: {os.listdir(OUTPUT_FOLDER)}")
+            print(f"❌ CRITICAL: Items file not created!")
+            print(f"   Files in outputs: {os.listdir(OUTPUT_FOLDER)}")
             return jsonify({
                 'error': 'Items file not created',
-                'expected_path': items_output_path,
                 'files_in_output': os.listdir(OUTPUT_FOLDER)
             }), 500
         
-        with open(items_output_path, 'r', encoding='utf-8') as f:
-            full_data = json.load(f)
+        # === Step 3: Load and verify the NEW data ===
+        print("\n" + "=" * 60)
+        print("📊 STEP 3: Verifying Extracted Data")
+        print("=" * 60)
         
-        # Extract items array from new structure
+        with open(items_output_path, 'r', encoding='utf-8') as f:
+            file_content = f.read()
+        
+        print(f"File size: {len(file_content)} bytes")
+        print(f"First 300 chars:\n{file_content[:300]}")
+        
+        full_data = json.loads(file_content)
         items = full_data.get('items', [])
         
-        print(f"✅ Extracted {len(items)} items")
+        print(f"\n✅ EXTRACTION RESULTS:")
+        print(f"   • Total items: {len(items)}")
+        
+        if len(items) > 0:
+            print(f"   • First item name: {items[0].get('item_name', 'NO NAME')[:80]}")
+            print(f"   • First item price: {items[0].get('unit_price', 'NO PRICE')}")
+        
+        # === CRITICAL CHECK: Verify this is NEW data ===
+        if len(items) > 0:
+            first_item_name = items[0].get('item_name', '').upper()
+            if 'ISOBARIC' in first_item_name or 'MONOBLOCK' in first_item_name:
+                print("\n" + "⚠️ " * 20)
+                print("⚠️  WARNING: DETECTED OLD DATA!")
+                print("⚠️  First item contains 'ISOBARIC MONOBLOCK'")
+                print("⚠️  This means the cache was not cleared properly!")
+                print("⚠️ " * 20)
+        
+        print("\n" + "=" * 60)
+        print("✅ PROCESS OFFER 1 COMPLETE")
+        print("=" * 60)
         
         return jsonify({
             'success': True,
@@ -156,6 +213,9 @@ def api_process_offer1():
             'message': f'Successfully extracted {len(items)} items'
         })
         
+    except subprocess.TimeoutExpired as e:
+        print(f"❌ Timeout: {e}")
+        return jsonify({'error': f'Processing timed out: {str(e)}'}), 500
     except Exception as e:
         print(f"❌ Error: {str(e)}")
         import traceback
@@ -214,7 +274,9 @@ def api_generate_offer():
     Returns downloadable DOCX
     """
     try:
-        print("🔄 Starting offer generation...")
+        print("=" * 60)
+        print("🔄 GENERATE OFFER REQUEST")
+        print("=" * 60)
         
         # Get optional parameters
         data = request.get_json() or {}
@@ -225,48 +287,81 @@ def api_generate_offer():
         if not os.path.exists(items_path):
             return jsonify({'error': 'No items found. Please process Offer 1 first.'}), 400
         
+        # === DEBUG: Show what's in the file ===
+        print("\n📋 Checking items file...")
+        with open(items_path, 'r', encoding='utf-8') as f:
+            file_content = f.read()
+        
+        print(f"   File size: {len(file_content)} bytes")
+        print(f"   First 500 chars:\n{file_content[:500]}")
+        
+        try:
+            full_data = json.loads(file_content)
+            items = full_data.get('items', [])
+            print(f"   Items count: {len(items)}")
+            if len(items) > 0:
+                print(f"   First item: {json.dumps(items[0], ensure_ascii=False)[:200]}")
+        except json.JSONDecodeError as e:
+            print(f"   JSON ERROR: {e}")
+            return jsonify({'error': f'Invalid JSON in items file: {str(e)}'}), 500
+        
         # Apply markup if requested
         if markup > 0:
-            print(f"💰 Applying {markup}% markup...")
-            with open(items_path, 'r', encoding='utf-8') as f:
-                full_data = json.load(f)
-            
-            # Apply markup to items
-            items = full_data.get('items', [])
+            print(f"\n💰 Applying {markup}% markup...")
             items = apply_markup_to_items(items, markup)
             full_data['items'] = items
             
-            # Save updated data
+            # Save updated items
             with open(items_path, 'w', encoding='utf-8') as f:
                 json.dump(full_data, f, ensure_ascii=False, indent=2)
         
         # Run the generation script with absolute path
-        print("📝 Generating final offer...")
+        print("\n📝 Running generation script...")
         generate_script_path = os.path.join(BASE_DIR, 'generate_offer_doc.py')
+        
         result = subprocess.run(
             ['python', generate_script_path],
             capture_output=True,
             text=True,
-            cwd=BASE_DIR
+            cwd=BASE_DIR,
+            timeout=30
         )
         
-        if result.returncode != 0:
-            print(f"Error: {result.stderr}")
-            return jsonify({'error': 'Offer generation failed', 'details': result.stderr}), 500
+        print(f"\n🔍 Generation script results:")
+        print(f"   Return code: {result.returncode}")
+        print(f"   STDOUT length: {len(result.stdout)} chars")
+        print(f"   STDERR length: {len(result.stderr)} chars")
         
-        print(result.stdout)  # Show the success message
+        # Print full output for debugging
+        if result.stdout:
+            print(f"\n📤 STDOUT:\n{result.stdout}")
+        
+        if result.stderr:
+            print(f"\n📤 STDERR:\n{result.stderr}")
+        
+        if result.returncode != 0:
+            error_msg = result.stderr if result.stderr else "Unknown error"
+            print(f"❌ Generation failed with code {result.returncode}")
+            return jsonify({
+                'error': 'Offer generation failed',
+                'details': error_msg,
+                'stdout': result.stdout,
+                'return_code': result.returncode
+            }), 500
         
         # Check if output file exists with absolute path
         output_path = os.path.join(OUTPUT_FOLDER, 'final_offer1.docx')
         if not os.path.exists(output_path):
-            return jsonify({'error': 'Output file not generated'}), 500
+            print("❌ Output file not created")
+            return jsonify({
+                'error': 'Output file not generated',
+                'details': 'The generation script completed but no output file was created',
+                'stdout': result.stdout,
+                'stderr': result.stderr
+            }), 500
         
-        # Load items count for response
-        with open(items_path, 'r', encoding='utf-8') as f:
-            full_data = json.load(f)
-            items = full_data.get('items', [])
-        
-        print(f"✅ Final offer generated successfully")
+        print(f"\n✅ Final offer generated successfully")
+        print("=" * 60)
         
         return jsonify({
             'success': True,
@@ -275,11 +370,17 @@ def api_generate_offer():
             'items_count': len(items)
         })
         
+    except subprocess.TimeoutExpired:
+        print("❌ Generation timed out")
+        return jsonify({'error': 'Generation timed out after 30 seconds'}), 500
     except Exception as e:
         print(f"❌ Error: {str(e)}")
         import traceback
         traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
+        return jsonify({
+            'error': str(e),
+            'traceback': traceback.format_exc()
+        }), 500
 
 # ============================================
 # ENDPOINT 5: Download Generated Offer
