@@ -224,10 +224,9 @@ for idx, item in enumerate(items, start=1):
         if 'quantity' in column_map and item.get("quantity"):
             row[column_map['quantity']].text = str(item["quantity"])
         
-        # Unit Price
+        # Unit Price - FIX: Keep on single line
         if 'unit_price' in column_map and item.get("unit_price"):
-            row[column_map['unit_
-         price']].text = str(item["unit_price"])
+            row[column_map['unit_price']].text = str(item["unit_price"])
         
         # Total Price
         if 'total' in column_map and item.get("total_price"):
@@ -265,4 +264,4 @@ print("=" * 60)
 print("📌 STABLE VERSION 3 (SV3) - Production Ready")
 print("   Date: October 13, 2025")
 print("   Status: TESTED & VERIFIED ✅")
-print("=" * 60)   
+print("=" * 60)
