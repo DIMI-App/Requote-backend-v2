@@ -4,6 +4,11 @@ import json
 import openai
 import re
 
+try:
+    OPENAI_TIMEOUT = int(os.getenv("OPENAI_TIMEOUT", "60"))
+except ValueError:
+    OPENAI_TIMEOUT = 60
+
 openai.api_key = os.environ.get('OPENAI_API_KEY')
 
 def find_pricing_sections(text):
@@ -46,6 +51,14 @@ def find_pricing_sections(text):
     return sections
 
 def extract_items_from_text(text, output_path):
+    """Extract structured items from raw offer text.
+
+    Returns
+    -------
+    tuple[bool, dict | None]
+        ``(True, None)`` if extraction succeeds, otherwise ``(False, error)``
+        where ``error`` contains diagnostic information for the caller.
+    """
     try:
         print(f"📄 Total text length: {len(text)} characters")
         
@@ -112,7 +125,8 @@ Extract ALL pricing items. Return ONLY the JSON array.
                 {"role": "user", "content": prompt}
             ],
             temperature=0,
-            max_tokens=3000  # Increased for more items
+            max_tokens=3000,  # Increased for more items
+            request_timeout=OPENAI_TIMEOUT
         )
         
         print("📨 Received response from OpenAI")
@@ -156,17 +170,42 @@ Extract ALL pricing items. Return ONLY the JSON array.
             return False
         
         print(f"✅ Successfully extracted {len(items)} items")
-        return True
-        
+        return True, None
+
+    except openai.error.Timeout as e:
+        print("❌ OpenAI request timed out")
+        return False, {
+            "type": "timeout",
+            "message": str(e) or "OpenAI request timed out",
+        }
+    except openai.error.OpenAIError as e:
+        status = getattr(e, "http_status", None) or getattr(e, "status_code", None)
+        error_info = {
+            "type": "openai_error",
+            "status": status,
+            "message": str(e)
+        }
+        print(f"❌ OpenAI API error: {error_info['message']}")
+        if status:
+            print(f"   HTTP status: {status}")
+        return False, error_info
     except json.JSONDecodeError as e:
         print(f"❌ JSON parsing error: {str(e)}")
-        print(f"Response was: {extracted_json[:500]}")
-        return False
+        snippet = extracted_json[:500] if 'extracted_json' in locals() else ''
+        if snippet:
+            print(f"Response was: {snippet}")
+        return False, {
+            "type": "json_error",
+            "message": str(e),
+        }
     except Exception as e:
         print(f"❌ Error during extraction: {str(e)}")
         import traceback
         traceback.print_exc()
-        return False
+        return False, {
+            "type": "unexpected",
+            "message": str(e),
+        }
 
 if __name__ == "__main__":
     if len(sys.argv) != 3:
@@ -185,6 +224,9 @@ if __name__ == "__main__":
     
     print(f"✅ Read {len(text)} characters from input file")
     
-    success = extract_items_from_text(text, output_json_path)
-    
+    success, error = extract_items_from_text(text, output_json_path)
+
+    if not success and error:
+        print(f"❌ Extraction failed: {error.get('message', 'Unknown error')}")
+
     sys.exit(0 if success else 1)
