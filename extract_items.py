@@ -78,7 +78,7 @@ Return ONLY the JSON array, no additional text.
             os.makedirs(output_dir, exist_ok=True)
             print(f"📁 Ensured directory exists: {output_dir}")
         
-        # Save to file with absolute path (wrap in "items" key for compatibility)
+        # Save to file (wrap in "items" key for compatibility)
         full_data = {"items": items}
         
         print(f"💾 Saving to: {output_path}")

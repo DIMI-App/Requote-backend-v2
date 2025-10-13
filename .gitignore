@@ -1,4 +1,4 @@
-# Secrets - never commit these!
+# Secrets
 *.json
 google-credentials.json
 requote-ai-backend-*.json
@@ -23,7 +23,7 @@ env/
 .DS_Store
 Thumbs.db
 
-# Outputs (contains processed files)
+# Outputs
 outputs/*
 !outputs/.gitkeep
 uploads/
