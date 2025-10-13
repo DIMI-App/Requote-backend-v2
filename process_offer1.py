@@ -1,15 +1,14 @@
 import json
 import os
 import tempfile
-from typing import Any, Dict, Optional, Tuple
+from typing import Optional
 
 from google.api_core import exceptions as google_exceptions
 from google.api_core.client_options import ClientOptions
 from google.cloud import documentai_v1 as documentai
 from pdfminer.high_level import extract_text as pdfminer_extract_text
-from pypdf import PdfReader
 
-DEFAULT_TIMEOUT_SECONDS = int(os.getenv("DOCUMENT_AI_TIMEOUT", "110"))
+DEFAULT_TIMEOUT_SECONDS = int(os.getenv("DOCUMENT_AI_TIMEOUT", "65"))
 
 
 def _setup_credentials() -> Optional[str]:
@@ -85,105 +84,33 @@ def process_offer1(file_path: str, timeout_seconds: int = DEFAULT_TIMEOUT_SECOND
                 pass
 
 
-def _extract_text_with_pypdf(file_path: str) -> str:
-    """Fast fallback using PyPDF to keep response times low."""
-    print("⚠️  Falling back to PyPDF text extraction")
-    try:
-        reader = PdfReader(file_path)
-        pieces = []
-        for page_number, page in enumerate(reader.pages, start=1):
-            try:
-                pieces.append(page.extract_text() or "")
-            except Exception as exc:  # pragma: no cover - defensive
-                print(f"   ⚠️  PyPDF failed on page {page_number}: {exc}")
-        text = "\n".join(filter(None, pieces))
-        print(f"✅ PyPDF extracted {len(text)} characters")
-        return text
-    except Exception as exc:  # pragma: no cover - dependency
-        print(f"❌ PyPDF extraction failed: {exc}")
-        return ""
-
-
 def _fallback_extract_text(file_path: str) -> str:
-    """Extract text locally using progressively heavier fallbacks."""
-    text = _extract_text_with_pypdf(file_path)
-    if len(text) >= 500:  # Heuristic: consider PyPDF result good enough
-        return text
-
-    if text:
-        print("⚠️  PyPDF produced very little text, trying pdfminer...")
-    else:
-        print("⚠️  PyPDF returned no text, trying pdfminer...")
-
+    """Extract text locally from the PDF using pdfminer as a fallback."""
+    print("⚠️  Falling back to local PDF text extraction (pdfminer)")
     try:
         text = pdfminer_extract_text(file_path)
-        print(f"✅ pdfminer extracted {len(text)} characters")
+        print(f"✅ Fallback extracted {len(text)} characters")
         return text
     except Exception as exc:  # pragma: no cover - dependency
-        print(f"❌ pdfminer extraction failed: {exc}")
+        print(f"❌ Fallback extraction failed: {exc}")
         return ""
 
 
-def _describe_document_ai_error(error_type: str, exc: Exception) -> Dict[str, Any]:
-    status = getattr(exc, "code", None)
-    if status is not None:
-        status = str(status)
-    return {
-        "type": error_type,
-        "message": str(exc),
-        "details": getattr(exc, "errors", None),
-        "status": status,
-    }
-
-
-def extract_offer1_text(
-    file_path: str, timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS
-) -> Tuple[str, Dict[str, Any]]:
-    """Attempt Document AI extraction and fall back to local parsing on failure.
-
-    Returns a tuple of the extracted text and a diagnostics dictionary describing
-    which extractor produced the text and any errors encountered along the way.
-    """
-    diagnostics: Dict[str, Any] = {
-        "document_ai_status": "not_attempted",
-        "used_fallback": False,
-    }
-    document_ai_error: Optional[Dict[str, Any]] = None
+def extract_offer1_text(file_path: str, timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS) -> str:
+    """Attempt Document AI extraction and fall back to local parsing on failure."""
     try:
         document = process_offer1(file_path, timeout_seconds=timeout_seconds)
         text = getattr(document, "text", "") or ""
         if text.strip():
             print("✅ Using text extracted by Document AI")
-            diagnostics["document_ai_status"] = "success"
-            diagnostics["document_ai_characters"] = len(text)
-            return text, diagnostics
-
+            return text
         print("⚠️  Document AI returned empty text. Using fallback extractor.")
-        document_ai_error = {
-            "type": "document_ai_empty_text",
-            "message": "Document AI returned no text",
-        }
-    except google_exceptions.DeadlineExceeded as exc:
+    except google_exceptions.DeadlineExceeded:
         print("⏱️  Document AI request exceeded timeout. Using fallback extractor.")
-        document_ai_error = _describe_document_ai_error("document_ai_timeout", exc)
-    except google_exceptions.PermissionDenied as exc:
-        print("🚫 Document AI credentials lack required permissions. Using fallback extractor.")
-        document_ai_error = _describe_document_ai_error("document_ai_permission", exc)
-    except google_exceptions.Unauthenticated as exc:
-        print("🚫 Document AI authentication failed. Using fallback extractor.")
-        document_ai_error = _describe_document_ai_error("document_ai_unauthenticated", exc)
     except Exception as exc:  # pragma: no cover - network dependency
         print(f"❌ Document AI processing failed: {exc}")
-        document_ai_error = _describe_document_ai_error("document_ai_error", exc)
 
-    diagnostics["document_ai_status"] = "failed"
-    if document_ai_error:
-        diagnostics["document_ai_error"] = document_ai_error
-
-    fallback_text = _fallback_extract_text(file_path)
-    diagnostics["used_fallback"] = True
-    diagnostics["fallback_characters"] = len(fallback_text)
-    return fallback_text, diagnostics
+    return _fallback_extract_text(file_path)
 
 
 def save_text_to_file(text: str, output_path: str) -> None:
@@ -193,29 +120,16 @@ def save_text_to_file(text: str, output_path: str) -> None:
     print(f"💾 Saved extracted text to {output_path}")
 
 
-def process_offer1_and_save(
-    file_path: str,
-    output_path: str,
-    timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
-) -> bool:
-    text, diagnostics = extract_offer1_text(
-        file_path, timeout_seconds=timeout_seconds
-    )
+def process_offer1_and_save(file_path: str, output_path: str, timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS) -> bool:
+    text = extract_offer1_text(file_path, timeout_seconds=timeout_seconds)
     if not text.strip():
         print("❌ No text extracted from Offer 1")
-        if diagnostics.get("document_ai_error"):
-            print(
-                "   Document AI error:",
-                diagnostics["document_ai_error"].get("message", "unknown"),
-            )
         return False
 
     save_text_to_file(text, output_path)
     preview = text[:500].replace("\n", " ")
     print(" Preview (first 500 chars):")
     print(preview)
-    if diagnostics.get("used_fallback"):
-        print("ℹ️  Text was generated using local fallback extraction")
     return True
 
 

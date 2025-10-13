@@ -170,25 +170,14 @@ Extract ALL pricing items. Return ONLY the JSON array.
             return False
         
         print(f"✅ Successfully extracted {len(items)} items")
-        return True, None
-
-    except openai.error.Timeout as e:
+        return True
+        
+    except openai.error.Timeout:
         print("❌ OpenAI request timed out")
-        return False, {
-            "type": "timeout",
-            "message": str(e) or "OpenAI request timed out",
-        }
+        return False
     except openai.error.OpenAIError as e:
-        status = getattr(e, "http_status", None) or getattr(e, "status_code", None)
-        error_info = {
-            "type": "openai_error",
-            "status": status,
-            "message": str(e)
-        }
-        print(f"❌ OpenAI API error: {error_info['message']}")
-        if status:
-            print(f"   HTTP status: {status}")
-        return False, error_info
+        print(f"❌ OpenAI API error: {str(e)}")
+        return False
     except json.JSONDecodeError as e:
         print(f"❌ JSON parsing error: {str(e)}")
         snippet = extracted_json[:500] if 'extracted_json' in locals() else ''
