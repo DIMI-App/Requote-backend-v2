@@ -9,6 +9,9 @@ from werkzeug.exceptions import RequestEntityTooLarge
 from extract_items import extract_items_from_text
 from process_offer1 import extract_offer1_text, save_text_to_file
 
+from extract_items import extract_items_from_text
+from process_offer1 import extract_offer1_text, save_text_to_file
+
 app = Flask(__name__)
 
 CORS(app, resources={
@@ -28,11 +31,6 @@ os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024
-
-
-@app.errorhandler(RequestEntityTooLarge)
-def handle_file_too_large(error):
-    return jsonify({'error': 'Uploaded file is too large'}), 413
 
 @app.route('/', methods=['GET'])
 def home():
@@ -75,21 +73,10 @@ def api_process_offer1():
         print("🤖 Extracting items with OpenAI...")
 
         items_output_path = os.path.join(OUTPUT_FOLDER, 'items_offer1.json')
-        success, error_info = extract_items_from_text(extracted_text, items_output_path)
+        success = extract_items_from_text(extracted_text, items_output_path)
 
         if not success:
-            error_response = {
-                'error': 'Item extraction failed',
-            }
-
-            if error_info:
-                error_response['details'] = error_info
-
-                if error_info.get('type') == 'openai_error' and error_info.get('status') == 429:
-                    error_response['error'] = 'OpenAI quota exceeded'
-                    return jsonify(error_response), 429
-
-            return jsonify(error_response), 500
+            return jsonify({'error': 'Item extraction failed'}), 500
 
         print("✅ Extraction complete")
         

@@ -7,9 +7,8 @@ from google.api_core import exceptions as google_exceptions
 from google.api_core.client_options import ClientOptions
 from google.cloud import documentai_v1 as documentai
 from pdfminer.high_level import extract_text as pdfminer_extract_text
-from pypdf import PdfReader
 
-DEFAULT_TIMEOUT_SECONDS = int(os.getenv("DOCUMENT_AI_TIMEOUT", "110"))
+DEFAULT_TIMEOUT_SECONDS = int(os.getenv("DOCUMENT_AI_TIMEOUT", "65"))
 
 
 def _setup_credentials() -> Optional[str]:
@@ -85,42 +84,15 @@ def process_offer1(file_path: str, timeout_seconds: int = DEFAULT_TIMEOUT_SECOND
                 pass
 
 
-def _extract_text_with_pypdf(file_path: str) -> str:
-    """Fast fallback using PyPDF to keep response times low."""
-    print("⚠️  Falling back to PyPDF text extraction")
-    try:
-        reader = PdfReader(file_path)
-        pieces = []
-        for page_number, page in enumerate(reader.pages, start=1):
-            try:
-                pieces.append(page.extract_text() or "")
-            except Exception as exc:  # pragma: no cover - defensive
-                print(f"   ⚠️  PyPDF failed on page {page_number}: {exc}")
-        text = "\n".join(filter(None, pieces))
-        print(f"✅ PyPDF extracted {len(text)} characters")
-        return text
-    except Exception as exc:  # pragma: no cover - dependency
-        print(f"❌ PyPDF extraction failed: {exc}")
-        return ""
-
-
 def _fallback_extract_text(file_path: str) -> str:
-    """Extract text locally using progressively heavier fallbacks."""
-    text = _extract_text_with_pypdf(file_path)
-    if len(text) >= 500:  # Heuristic: consider PyPDF result good enough
-        return text
-
-    if text:
-        print("⚠️  PyPDF produced very little text, trying pdfminer...")
-    else:
-        print("⚠️  PyPDF returned no text, trying pdfminer...")
-
+    """Extract text locally from the PDF using pdfminer as a fallback."""
+    print("⚠️  Falling back to local PDF text extraction (pdfminer)")
     try:
         text = pdfminer_extract_text(file_path)
-        print(f"✅ pdfminer extracted {len(text)} characters")
+        print(f"✅ Fallback extracted {len(text)} characters")
         return text
     except Exception as exc:  # pragma: no cover - dependency
-        print(f"❌ pdfminer extraction failed: {exc}")
+        print(f"❌ Fallback extraction failed: {exc}")
         return ""
 
 
