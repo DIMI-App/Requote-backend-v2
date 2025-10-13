@@ -171,3 +171,26 @@ for idx, item in enumerate(items, start=1):
             row[column_map['total']].text = str(item["total_price"])
     
     except IndexError as e:
+        print(f"   ⚠️  Warning: Column index out of range for item {idx}")
+        continue
+
+print(f"✅ Successfully inserted {len(items)} items")
+
+# === STEP 7: Save ===
+print("\n💾 Step 7: Saving final offer...")
+try:
+    os.makedirs(os.path.dirname(OUTPUT_PATH), exist_ok=True)
+    doc.save(OUTPUT_PATH)
+    print(f"✅ SUCCESS! Saved to: {OUTPUT_PATH}")
+except Exception as e:
+    print(f"❌ ERROR saving document: {e}")
+    exit(1)
+
+print("\n" + "=" * 60)
+print("📊 SUMMARY:")
+print(f"   • Items processed: {len(items)}")
+print(f"   • Table used: #{table_idx}")
+print(f"   • Columns mapped: {len(column_map)}")
+print("=" * 60)
+print("✨ Done! Your branded offer is ready (SV3)")
+print("=" * 60)
