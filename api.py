@@ -9,6 +9,9 @@ from werkzeug.exceptions import RequestEntityTooLarge
 from extract_items import extract_items_from_text
 from process_offer1 import extract_offer1_text, save_text_to_file
 
+from extract_items import extract_items_from_text
+from process_offer1 import extract_offer1_text, save_text_to_file
+
 app = Flask(__name__)
 
 CORS(app, resources={
@@ -28,11 +31,6 @@ os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024
-
-
-@app.errorhandler(RequestEntityTooLarge)
-def handle_file_too_large(error):
-    return jsonify({'error': 'Uploaded file is too large'}), 413
 
 @app.route('/', methods=['GET'])
 def home():
