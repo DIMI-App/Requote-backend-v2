@@ -16,29 +16,41 @@ def extract_items_from_text(text, output_path):
             text_to_process = text
         
         prompt = f"""
-You are an AI assistant that extracts structured data from supplier quotations.
+You are an AI assistant that extracts equipment and pricing data from supplier quotations.
 
-Given the following quotation text, extract all items/products with their details.
+The document contains technical specifications and pricing for industrial equipment (bottling machines, filling equipment, etc.).
+
+Extract ALL items from pricing tables, including:
+- Main equipment items
+- Optional accessories
+- Additional features
+- Any line item with a price
 
 For each item, extract:
-- Item name/description
-- Quantity
-- Unit price
-- Total price (if available)
-- Any other relevant details (SKU, part number, etc.)
+- item_name: Full description of the item/equipment
+- quantity: Number of units (use "1" if not specified)
+- unit_price: Price per unit (include currency symbol like €)
+- total_price: Total price if different from unit price
+- details: Any technical specifications or additional info
 
-Return the data as a JSON array with this structure:
+IMPORTANT:
+- Look for tables with columns like "description", "price in €", "amount in €"
+- Include both main items (like machines) and optional accessories
+- If you see "Ex-work prices" or "Total amount", that's the pricing section
+- Extract equipment names, model numbers, and specifications
+
+Return the data as a JSON array:
 [
   {{
-    "item_name": "Product name",
-    "quantity": "number with unit",
-    "unit_price": "price",
-    "total_price": "price",
-    "details": "any additional info"
+    "item_name": "Equipment name and model",
+    "quantity": "1",
+    "unit_price": "€270,000",
+    "total_price": "€270,000",
+    "details": "Technical specifications"
   }}
 ]
 
-Quotation text:
+Document text:
 {text_to_process}
 
 Return ONLY the JSON array, no additional text.
@@ -47,13 +59,13 @@ Return ONLY the JSON array, no additional text.
         print("🔄 Calling OpenAI to extract items...")
         
         response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
+            model="gpt-4",
             messages=[
-                {"role": "system", "content": "You are a data extraction assistant. Return only valid JSON."},
+                {"role": "system", "content": "You are a data extraction assistant specializing in industrial equipment quotations. Return only valid JSON."},
                 {"role": "user", "content": prompt}
             ],
             temperature=0,
-            max_tokens=2000
+            max_tokens=3000
         )
         
         print("📨 Received response from OpenAI")
@@ -106,7 +118,7 @@ Return ONLY the JSON array, no additional text.
 
 if __name__ == "__main__":
     print("=" * 60)
-    print("STARTING ITEM EXTRACTION (SV3)")
+    print("STARTING ITEM EXTRACTION (Day 13 - Equipment Quote)")
     print("=" * 60)
     
     if len(sys.argv) != 3:
