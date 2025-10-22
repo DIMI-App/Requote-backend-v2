@@ -3,7 +3,7 @@ services:
     name: requote-ai-backend
     runtime: python
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn api:app --timeout 180 --workers 1 --threads 2 --preload
+    startCommand: gunicorn api:app --timeout 300 --workers 1 --threads 2 --preload
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.0
