@@ -8,7 +8,7 @@ openai.api_key = os.environ.get('OPENAI_API_KEY')
 def extract_items_from_text(text, output_path):
     try:
         # Truncate if too long
-        max_chars = 12000
+        max_chars = 15000
         if len(text) > max_chars:
             print(f"⚠️  Text is {len(text)} chars, truncating to {max_chars}")
             text_to_process = text[:max_chars]
@@ -16,56 +16,49 @@ def extract_items_from_text(text, output_path):
             text_to_process = text
         
         prompt = f"""
-You are an AI assistant that extracts equipment and pricing data from supplier quotations.
+You are an AI that extracts pricing data from supplier quotations for industrial equipment.
 
-The document contains technical specifications and pricing for industrial equipment (bottling machines, filling equipment, etc.).
+TASK: Extract ALL items with prices from the document.
 
-Extract ALL items from pricing tables, including:
-- Main equipment items
-- Optional accessories
-- Additional features
-- Any line item with a price
+LOOK FOR:
+1. Tables with "description" and "price in €" columns
+2. Equipment names (like "Automatic rotary rinsing machine TECNA MC24")
+3. Optional accessories and their prices
+4. Total amounts and line items
 
-For each item, extract:
-- item_name: Full description of the item/equipment
-- quantity: Number of units (use "1" if not specified)
-- unit_price: Price per unit (include currency symbol like €)
-- total_price: Total price if different from unit price
-- details: Any technical specifications or additional info
+EXTRACT for each item:
+- item_name: Full equipment/item description
+- quantity: Number (use "1" if not specified)
+- unit_price: Price with € symbol (e.g., "€270,000")
+- total_price: Total if shown, otherwise same as unit_price
+- details: Model numbers, specifications, features
 
-IMPORTANT:
-- Look for tables with columns like "description", "price in €", "amount in €"
-- Include both main items (like machines) and optional accessories
-- If you see "Ex-work prices" or "Total amount", that's the pricing section
-- Extract equipment names, model numbers, and specifications
+RULES:
+- Include main equipment AND optional items
+- If a row has a price, extract it
+- Keep equipment model numbers (like "T24C28S4-VN6")
+- Include accessories even if marked "optional"
+- Format: Clean JSON array only
 
-Return the data as a JSON array:
-[
-  {{
-    "item_name": "Equipment name and model",
-    "quantity": "1",
-    "unit_price": "€270,000",
-    "total_price": "€270,000",
-    "details": "Technical specifications"
-  }}
-]
-
-Document text:
+Document:
 {text_to_process}
 
-Return ONLY the JSON array, no additional text.
+Return JSON only:
+[
+  {{"item_name": "...", "quantity": "1", "unit_price": "€...", "total_price": "€...", "details": "..."}}
+]
 """
         
         print("🔄 Calling OpenAI to extract items...")
         
         response = openai.ChatCompletion.create(
-            model="gpt-4",
+            model="gpt-3.5-turbo-16k",
             messages=[
-                {"role": "system", "content": "You are a data extraction assistant specializing in industrial equipment quotations. Return only valid JSON."},
+                {"role": "system", "content": "You extract pricing data from industrial equipment quotations. Return only valid JSON arrays."},
                 {"role": "user", "content": prompt}
             ],
             temperature=0,
-            max_tokens=3000
+            max_tokens=4000
         )
         
         print("📨 Received response from OpenAI")
@@ -74,6 +67,7 @@ Return ONLY the JSON array, no additional text.
         
         print(f"📝 Raw response length: {len(extracted_json)} characters")
         
+        # Clean up markdown code blocks
         if extracted_json.startswith("```json"):
             print("🔧 Removed ```json wrapper")
             extracted_json = extracted_json.replace("```json", "").replace("```", "").strip()
@@ -99,6 +93,12 @@ Return ONLY the JSON array, no additional text.
         if os.path.exists(output_path):
             file_size = os.path.getsize(output_path)
             print(f"✅ File created successfully! Size: {file_size} bytes")
+            
+            # Show preview of first item
+            if len(items) > 0:
+                print(f"📋 Preview of first item:")
+                print(f"   Name: {items[0].get('item_name', 'N/A')[:50]}...")
+                print(f"   Price: {items[0].get('unit_price', 'N/A')}")
         else:
             print(f"❌ ERROR: File was not created at {output_path}")
             return False
@@ -108,7 +108,7 @@ Return ONLY the JSON array, no additional text.
         
     except json.JSONDecodeError as e:
         print(f"❌ JSON parsing error: {str(e)}")
-        print(f"Raw response: {extracted_json}")
+        print(f"Raw response preview: {extracted_json[:500]}...")
         return False
     except Exception as e:
         print(f"❌ Error during extraction: {str(e)}")
@@ -118,7 +118,7 @@ Return ONLY the JSON array, no additional text.
 
 if __name__ == "__main__":
     print("=" * 60)
-    print("STARTING ITEM EXTRACTION (Day 13 - Equipment Quote)")
+    print("STARTING ITEM EXTRACTION (Day 13 - GPT-3.5-turbo-16k)")
     print("=" * 60)
     
     if len(sys.argv) != 3:
