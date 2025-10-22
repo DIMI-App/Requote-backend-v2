@@ -7,11 +7,23 @@ from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
 
+# === IMPROVED CORS CONFIGURATION ===
 CORS(app, resources={
     r"/*": {
-        "origins": "*",
-        "methods": ["GET", "POST", "OPTIONS"],
-        "allow_headers": ["Content-Type"]
+        "origins": [
+            "*",  # Allow all origins (you can restrict this later)
+            "http://localhost:3000",
+            "http://localhost:5173",
+            "https://*.lovable.app",
+            "https://*.lovable.dev",
+            "https://*.onrender.com",
+            "https://id-preview--dd4c7db4-cd3e-4455-b26d-09719fbdc.lovable.app"
+        ],
+        "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        "allow_headers": ["Content-Type", "Authorization", "Accept"],
+        "expose_headers": ["Content-Type"],
+        "supports_credentials": False,
+        "max_age": 3600
     }
 })
 
@@ -25,19 +37,45 @@ os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
 
+# Add OPTIONS handler for preflight requests
+@app.after_request
+def after_request(response):
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+    return response
+
 @app.route('/', methods=['GET'])
 def home():
     return jsonify({
         'message': 'Requote AI Backend is running!',
-        'version': 'SV3.1-Day13',
-        'status': 'healthy'
+        'version': 'SV3.1-Day13-CORS-Fixed',
+        'status': 'healthy',
+        'endpoints': {
+            'process_offer1': '/api/process-offer1',
+            'upload_offer2': '/api/upload-offer2',
+            'generate_offer': '/api/generate-offer',
+            'download_offer': '/api/download-offer'
+        }
     })
 
-@app.route('/api/process-offer1', methods=['POST'])
+@app.route('/api/health', methods=['GET'])
+def health_check():
+    return jsonify({
+        'status': 'ok',
+        'version': 'SV3.1-Day13-CORS-Fixed'
+    })
+
+@app.route('/api/process-offer1', methods=['POST', 'OPTIONS'])
 def api_process_offer1():
+    # Handle preflight OPTIONS request
+    if request.method == 'OPTIONS':
+        return '', 204
+    
     try:
         print("=" * 70)
         print("📤 Received request to process Offer 1")
+        print(f"📍 Origin: {request.headers.get('Origin', 'Not provided')}")
         print("=" * 70)
         
         if 'file' not in request.files:
@@ -164,8 +202,11 @@ def api_process_offer1():
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/upload-offer2', methods=['POST'])
+@app.route('/api/upload-offer2', methods=['POST', 'OPTIONS'])
 def api_upload_offer2():
+    if request.method == 'OPTIONS':
+        return '', 204
+    
     try:
         print("📤 Received Offer 2 template")
         
@@ -192,8 +233,11 @@ def api_upload_offer2():
         print(f"❌ Error: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/generate-offer', methods=['POST'])
+@app.route('/api/generate-offer', methods=['POST', 'OPTIONS'])
 def api_generate_offer():
+    if request.method == 'OPTIONS':
+        return '', 204
+    
     try:
         print("🔄 Starting offer generation...")
         
@@ -254,8 +298,11 @@ def api_generate_offer():
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/download-offer', methods=['GET'])
+@app.route('/api/download-offer', methods=['GET', 'OPTIONS'])
 def api_download_offer():
+    if request.method == 'OPTIONS':
+        return '', 204
+    
     try:
         output_path = os.path.join(OUTPUT_FOLDER, 'final_offer1.docx')
         
@@ -296,7 +343,7 @@ def apply_markup_to_items(items, markup_percent):
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     print("=" * 70)
-    print("🚀 Starting Requote AI Backend Server (Day 13 - v3.1)")
+    print("🚀 Starting Requote AI Backend Server (Day 13 - CORS Fixed)")
     print("=" * 70)
     print(f"📡 Server will be available at: http://0.0.0.0:{port}")
     print("=" * 70)
