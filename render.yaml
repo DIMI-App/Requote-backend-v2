@@ -7,8 +7,14 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.0
-      - key: GOOGLE_APPLICATION_CREDENTIALS
+      - key: GOOGLE_APPLICATION_CREDENTIALS_JSON
         sync: false
+      - key: GCP_PROJECT_ID
+        value: requote-ai-backend
+      - key: GCP_LOCATION
+        value: eu
+      - key: GCP_PROCESSOR_ID
+        value: f02a4802c23ab664
       - key: OPENAI_API_KEY
         sync: false
     plan: free
