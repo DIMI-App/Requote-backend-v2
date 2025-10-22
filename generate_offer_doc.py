@@ -2,96 +2,81 @@ import json
 import os
 from docx import Document
 
-# === FILE PATHS ===
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 OFFER_2_PATH = os.path.join(BASE_DIR, "offer2_template.docx")
 OFFER_1_DATA_PATH = os.path.join(BASE_DIR, "outputs", "items_offer1.json")
 OUTPUT_PATH = os.path.join(BASE_DIR, "outputs", "final_offer1.docx")
 
 print("=" * 60)
-print("🚀 REQUOTE AI - INTELLIGENT HYBRID GENERATOR (SV3)")
+print("REQUOTE AI - OFFER GENERATOR")
 print("=" * 60)
 
-# === STEP 1: Load complete data from JSON ===
-print("\n📂 Step 1: Loading extracted data...")
+# Load JSON data
+print("\nStep 1: Loading extracted data...")
 try:
     with open(OFFER_1_DATA_PATH, "r", encoding="utf-8") as f:
         full_data = json.load(f)
     
-    # Extract components
     items = full_data.get("items", [])
-    technical_specs = full_data.get("technical_specs", {})
-    company_info = full_data.get("company_info", {})
     
-    print(f"✅ Loaded data:")
-    print(f"   • Items: {len(items)}")
+    print(f"Loaded {len(items)} items")
     
-    # === Safety check for empty items ===
     if len(items) == 0:
-        print("\n❌ CRITICAL ERROR: NO ITEMS FOUND")
-        print("   Please check extracted data")
+        print("ERROR: No items found")
         exit(1)
     
 except Exception as e:
-    print(f"❌ ERROR loading data: {e}")
+    print(f"ERROR loading data: {e}")
     exit(1)
 
-# === STEP 2: Load DOCX Template ===
-print("\n📄 Step 2: Loading template...")
+# Load template
+print("\nStep 2: Loading template...")
 try:
     doc = Document(OFFER_2_PATH)
-    print(f"✅ Template loaded ({len(doc.tables)} tables found)")
+    print(f"Template loaded ({len(doc.tables)} tables)")
 except Exception as e:
-    print(f"❌ ERROR loading template: {e}")
+    print(f"ERROR loading template: {e}")
     exit(1)
 
 if len(doc.tables) == 0:
-    print("❌ ERROR: No tables found in template")
+    print("ERROR: No tables in template")
     exit(1)
 
-# === STEP 3: Find products table ===
-print("\n🔍 Step 3: Detecting products table...")
+# Find products table
+print("\nStep 3: Finding products table...")
 
 def find_products_table(doc):
+    keywords = ['position', 'description', 'price', 'quantity', 'total', 'item']
+    
     best_match = None
     best_score = 0
     
-    product_keywords = [
-        'позиція', 'опис', 'ціна', 'кількість', 'сума',
-        'position', 'description', 'price', 'quantity', 'total',
-        'item', 'product'
-    ]
-    
-    for table_idx, table in enumerate(doc.tables):
+    for idx, table in enumerate(doc.tables):
         if len(table.rows) < 2:
             continue
         
-        header_row = table.rows[0]
-        header_text = ' '.join([cell.text.lower() for cell in header_row.cells])
-        
-        score = sum(1 for keyword in product_keywords if keyword in header_text)
+        header_text = ' '.join([cell.text.lower() for cell in table.rows[0].cells])
+        score = sum(1 for kw in keywords if kw in header_text)
         
         if len(table.columns) >= 3:
             score += 2
         
-        print(f"   Table {table_idx}: {len(table.rows)}x{len(table.columns)} - Score: {score}")
-        
         if score > best_score:
             best_score = score
-            best_match = (table_idx, table)
+            best_match = (idx, table)
     
     if best_match is None:
-        largest_idx = max(range(len(doc.tables)), 
-                         key=lambda i: len(doc.tables[i].rows) * len(doc.tables[i].columns))
-        best_match = (largest_idx, doc.tables[largest_idx])
+        largest = max(range(len(doc.tables)), 
+                     key=lambda i: len(doc.tables[i].rows) * len(doc.tables[i].columns))
+        best_match = (largest, doc.tables[largest])
     
     return best_match
 
 table_idx, product_table = find_products_table(doc)
-print(f"✅ Selected Table #{table_idx} ({len(product_table.rows)}x{len(product_table.columns)})")
+print(f"Using table {table_idx} ({len(product_table.rows)}x{len(product_table.columns)})")
 
-# === STEP 4: Column mapping ===
-print("\n🗂️  Step 4: Detecting column structure...")
+# Detect columns
+print("\nStep 4: Detecting columns...")
 
 def detect_columns(table):
     header_row = table.rows[0]
@@ -100,15 +85,15 @@ def detect_columns(table):
     for col_idx, cell in enumerate(header_row.cells):
         text = cell.text.lower().strip()
         
-        if not mapping.get('position') and any(k in text for k in ['№', 'поз', 'position', 'num']):
+        if 'position' in text or 'num' in text:
             mapping['position'] = col_idx
-        elif not mapping.get('description') and any(k in text for k in ['опис', 'description', 'name', 'item']):
+        elif 'description' in text or 'name' in text or 'item' in text:
             mapping['description'] = col_idx
-        elif not mapping.get('quantity') and any(k in text for k in ['кількість', 'quantity', 'qty']):
+        elif 'quantity' in text or 'qty' in text:
             mapping['quantity'] = col_idx
-        elif not mapping.get('unit_price') and any(k in text for k in ['ціна', 'price', 'unit']):
+        elif 'price' in text and 'unit' in text:
             mapping['unit_price'] = col_idx
-        elif not mapping.get('total') and any(k in text for k in ['сума', 'total', 'sum']):
+        elif 'total' in text or 'sum' in text:
             mapping['total'] = col_idx
     
     num_cols = len(table.columns)
@@ -127,22 +112,19 @@ def detect_columns(table):
     return mapping
 
 column_map = detect_columns(product_table)
+print(f"Columns: {column_map}")
 
-print("📋 Column mapping:")
-for field, col in sorted(column_map.items()):
-    print(f"   • {field}: column {col}")
-
-# === STEP 5: Clear old rows ===
-print(f"\n🧹 Step 5: Clearing old rows...")
+# Clear old rows
+print("\nStep 5: Clearing old rows...")
 original_count = len(product_table.rows)
 
 while len(product_table.rows) > 1:
     product_table._tbl.remove(product_table.rows[1]._tr)
 
-print(f"✅ Cleared {original_count - 1} rows, kept header")
+print(f"Cleared {original_count - 1} rows")
 
-# === STEP 6: Insert items ===
-print(f"\n📝 Step 6: Inserting {len(items)} items...")
+# Insert items
+print(f"\nStep 6: Inserting {len(items)} items...")
 
 for idx, item in enumerate(items, start=1):
     row = product_table.add_row().cells
@@ -170,27 +152,33 @@ for idx, item in enumerate(items, start=1):
         if 'total' in column_map and item.get("total_price"):
             row[column_map['total']].text = str(item["total_price"])
     
-    except IndexError as e:
-        print(f"   ⚠️  Warning: Column index out of range for item {idx}")
+    except Exception as e:
+        print(f"Warning: Error on item {idx}: {e}")
         continue
 
-print(f"✅ Successfully inserted {len(items)} items")
+print(f"Inserted {len(items)} items")
 
-# === STEP 7: Save ===
-print("\n💾 Step 7: Saving final offer...")
+# Save
+print("\nStep 7: Saving...")
 try:
     os.makedirs(os.path.dirname(OUTPUT_PATH), exist_ok=True)
     doc.save(OUTPUT_PATH)
-    print(f"✅ SUCCESS! Saved to: {OUTPUT_PATH}")
+    print(f"SUCCESS! Saved to: {OUTPUT_PATH}")
 except Exception as e:
-    print(f"❌ ERROR saving document: {e}")
+    print(f"ERROR saving: {e}")
     exit(1)
 
 print("\n" + "=" * 60)
-print("📊 SUMMARY:")
-print(f"   • Items processed: {len(items)}")
-print(f"   • Table used: #{table_idx}")
-print(f"   • Columns mapped: {len(column_map)}")
+print("COMPLETED")
 print("=" * 60)
-print("✨ Done! Your branded offer is ready (SV3)")
-print("=" * 60)
+```
+
+---
+
+## 📝 Do this:
+
+1. **Replace `generate_offer_doc.py`** with code above
+2. **Save**
+3. **Push:**
+```
+   Day 13: Improve error handling in generate_offer_doc.py
