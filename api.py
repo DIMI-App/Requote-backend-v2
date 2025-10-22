@@ -29,14 +29,16 @@ app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
 def home():
     return jsonify({
         'message': 'Requote AI Backend is running!',
-        'version': 'SV3',
+        'version': 'SV3.1-Day13',
         'status': 'healthy'
     })
 
 @app.route('/api/process-offer1', methods=['POST'])
 def api_process_offer1():
     try:
+        print("=" * 70)
         print("📤 Received request to process Offer 1")
+        print("=" * 70)
         
         if 'file' not in request.files:
             return jsonify({'error': 'No file uploaded'}), 400
@@ -51,8 +53,13 @@ def api_process_offer1():
         file.save(filepath)
         
         print(f"✅ File saved: {filepath}")
+        print(f"📊 File size: {os.path.getsize(filepath)} bytes")
         
-        print("🔍 Processing with Document AI...")
+        # === STEP 1: Document AI Processing ===
+        print("\n" + "=" * 70)
+        print("🔍 STEP 1: Processing with Document AI...")
+        print("=" * 70)
+        
         test_process_path = os.path.join(BASE_DIR, 'test_process.py')
         result = subprocess.run(
             ['python', test_process_path],
@@ -61,21 +68,53 @@ def api_process_offer1():
             cwd=BASE_DIR
         )
         
+        print("STDOUT:", result.stdout)
+        if result.stderr:
+            print("STDERR:", result.stderr)
+        
         if result.returncode != 0:
-            print(f"❌ Document AI Error: {result.stderr}")
-            return jsonify({'error': 'Document AI processing failed', 'details': result.stderr}), 500
+            print(f"❌ Document AI Error (exit code {result.returncode})")
+            return jsonify({
+                'error': 'Document AI processing failed',
+                'details': result.stderr,
+                'stdout': result.stdout
+            }), 500
         
         print("✅ Document AI complete")
         
-        print("🤖 Extracting items with OpenAI...")
-        
+        # === STEP 2: Verify extracted_text.txt exists ===
         extracted_text_path = os.path.join(OUTPUT_FOLDER, 'extracted_text.txt')
+        
+        print("\n" + "=" * 70)
+        print("🔍 STEP 2: Verifying extracted text file...")
+        print("=" * 70)
+        print(f"📂 Looking for: {extracted_text_path}")
+        print(f"📂 File exists: {os.path.exists(extracted_text_path)}")
+        
+        if os.path.exists(extracted_text_path):
+            file_size = os.path.getsize(extracted_text_path)
+            print(f"✅ File found! Size: {file_size} bytes")
+            
+            # Preview content
+            with open(extracted_text_path, 'r', encoding='utf-8') as f:
+                preview = f.read(200)
+                print(f"📄 Preview: {preview[:100]}...")
+        else:
+            print("❌ FILE NOT FOUND!")
+            print(f"📁 Output folder contents: {os.listdir(OUTPUT_FOLDER)}")
+            return jsonify({
+                'error': 'Extracted text file not found',
+                'expected_path': extracted_text_path,
+                'output_folder_contents': os.listdir(OUTPUT_FOLDER)
+            }), 500
+        
+        # === STEP 3: OpenAI Item Extraction ===
+        print("\n" + "=" * 70)
+        print("🤖 STEP 3: Extracting items with OpenAI...")
+        print("=" * 70)
+        
         items_output_path = os.path.join(OUTPUT_FOLDER, 'items_offer1.json')
         extract_items_path = os.path.join(BASE_DIR, 'extract_items.py')
-        
-        if not os.path.exists(extracted_text_path):
-            print(f"❌ Extracted text file not found")
-            return jsonify({'error': 'Extracted text file not found'}), 500
         
         result = subprocess.run(
             ['python', extract_items_path, extracted_text_path, items_output_path],
@@ -84,15 +123,21 @@ def api_process_offer1():
             cwd=BASE_DIR
         )
         
-        print(f"STDOUT: {result.stdout}")
+        print("STDOUT:", result.stdout)
         if result.stderr:
-            print(f"STDERR: {result.stderr}")
+            print("STDERR:", result.stderr)
         
         if result.returncode != 0:
-            return jsonify({'error': 'Item extraction failed', 'details': result.stderr}), 500
+            print(f"❌ Item extraction failed (exit code {result.returncode})")
+            return jsonify({
+                'error': 'Item extraction failed',
+                'details': result.stderr,
+                'stdout': result.stdout
+            }), 500
         
         print("✅ Extraction complete")
         
+        # === STEP 4: Load and return results ===
         if not os.path.exists(items_output_path):
             return jsonify({'error': 'Items file not created'}), 500
         
@@ -101,7 +146,9 @@ def api_process_offer1():
         
         items = full_data.get('items', [])
         
-        print(f"✅ Extracted {len(items)} items")
+        print("\n" + "=" * 70)
+        print(f"✅ SUCCESS! Extracted {len(items)} items")
+        print("=" * 70)
         
         return jsonify({
             'success': True,
@@ -112,7 +159,7 @@ def api_process_offer1():
         })
         
     except Exception as e:
-        print(f"❌ Error: {str(e)}")
+        print(f"\n❌ CRITICAL ERROR: {str(e)}")
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
@@ -248,6 +295,9 @@ def apply_markup_to_items(items, markup_percent):
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    print("🚀 Starting Requote AI Backend Server (SV3)...")
+    print("=" * 70)
+    print("🚀 Starting Requote AI Backend Server (Day 13 - v3.1)")
+    print("=" * 70)
     print(f"📡 Server will be available at: http://0.0.0.0:{port}")
+    print("=" * 70)
     app.run(debug=True, host='0.0.0.0', port=port)

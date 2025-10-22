@@ -92,25 +92,41 @@ if __name__ == "__main__":
     
     if os.path.exists(file_path):
         print("🚀 Starting Document AI processing...")
+        print(f"📂 File size: {os.path.getsize(file_path)} bytes")
         try:
             doc_result = process_offer1(file_path)
             parsed_text = doc_result.text
+            
+            if not parsed_text or len(parsed_text) == 0:
+                print("⚠️  WARNING: Extracted text is empty!")
+                parsed_text = "NO TEXT EXTRACTED"
             
             # Save to extracted_text.txt
             output_path = os.path.join(OUTPUT_FOLDER, "extracted_text.txt")
             os.makedirs(OUTPUT_FOLDER, exist_ok=True)
             
+            print(f"💾 Saving to: {output_path}")
             with open(output_path, "w", encoding="utf-8") as f:
                 f.write(parsed_text)
             
-            print("✅ Parsed text saved to: " + output_path)
-            print("📊 Preview (first 500 chars):")
-            print(parsed_text[:500])
+            # Verify file was created
+            if os.path.exists(output_path):
+                file_size = os.path.getsize(output_path)
+                print(f"✅ Parsed text saved successfully!")
+                print(f"📊 File size: {file_size} bytes")
+                print(f"📊 Text length: {len(parsed_text)} characters")
+                print("📊 Preview (first 500 chars):")
+                print(parsed_text[:500])
+            else:
+                print(f"❌ ERROR: File was NOT created at {output_path}")
+                exit(1)
             
         except Exception as e:
             print("❌ Processing failed: " + str(e))
             import traceback
             traceback.print_exc()
+            exit(1)
     else:
         print("❌ File not found: " + file_path)
         print("ℹ️  Please upload a PDF file to the uploads folder first")
+        exit(1)
