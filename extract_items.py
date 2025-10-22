@@ -2,13 +2,21 @@ import os
 import sys
 import json
 import openai
+from openai.error import OpenAIError, RateLimitError, Timeout
 
 openai.api_key = os.environ.get('OPENAI_API_KEY')
 
 def extract_items_from_text(text, output_path):
     try:
+        # Check if API key exists
+        if not openai.api_key:
+            print("❌ CRITICAL: OPENAI_API_KEY environment variable not set!")
+            return False
+        
+        print(f"✅ OpenAI API key found (length: {len(openai.api_key)})")
+        
         # Truncate if too long
-        max_chars = 15000
+        max_chars = 12000
         if len(text) > max_chars:
             print(f"⚠️  Text is {len(text)} chars, truncating to {max_chars}")
             text_to_process = text[:max_chars]
@@ -22,43 +30,38 @@ TASK: Extract ALL items with prices from the document.
 
 LOOK FOR:
 1. Tables with "description" and "price in €" columns
-2. Equipment names (like "Automatic rotary rinsing machine TECNA MC24")
-3. Optional accessories and their prices
-4. Total amounts and line items
+2. Equipment names (like "Automatic rotary rinsing machine")
+3. Line items with prices
+4. Optional accessories
 
 EXTRACT for each item:
 - item_name: Full equipment/item description
 - quantity: Number (use "1" if not specified)
 - unit_price: Price with € symbol (e.g., "€270,000")
 - total_price: Total if shown, otherwise same as unit_price
-- details: Model numbers, specifications, features
+- details: Model numbers, specifications
 
-RULES:
-- Include main equipment AND optional items
-- If a row has a price, extract it
-- Keep equipment model numbers (like "T24C28S4-VN6")
-- Include accessories even if marked "optional"
-- Format: Clean JSON array only
-
-Document:
+Document text:
 {text_to_process}
 
-Return JSON only:
+Return ONLY a JSON array:
 [
   {{"item_name": "...", "quantity": "1", "unit_price": "€...", "total_price": "€...", "details": "..."}}
 ]
 """
         
-        print("🔄 Calling OpenAI to extract items...")
+        print("🔄 Calling OpenAI API...")
+        print(f"📊 Prompt length: {len(prompt)} characters")
         
         response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo-16k",
+            model="gpt-3.5-turbo",
             messages=[
                 {"role": "system", "content": "You extract pricing data from industrial equipment quotations. Return only valid JSON arrays."},
                 {"role": "user", "content": prompt}
             ],
             temperature=0,
-            max_tokens=4000
+            max_tokens=2000,
+            request_timeout=60
         )
         
         print("📨 Received response from OpenAI")
@@ -75,6 +78,7 @@ Return JSON only:
             print("🔧 Removed ``` wrapper")
             extracted_json = extracted_json.replace("```", "").strip()
         
+        print(f"🔍 Parsing JSON...")
         items = json.loads(extracted_json)
         
         print(f"✅ Validated JSON with {len(items)} items")
@@ -82,7 +86,6 @@ Return JSON only:
         output_dir = os.path.dirname(output_path)
         if output_dir:
             os.makedirs(output_dir, exist_ok=True)
-            print(f"📁 Ensured directory exists: {output_dir}")
         
         full_data = {"items": items}
         
@@ -94,31 +97,41 @@ Return JSON only:
             file_size = os.path.getsize(output_path)
             print(f"✅ File created successfully! Size: {file_size} bytes")
             
-            # Show preview of first item
             if len(items) > 0:
-                print(f"📋 Preview of first item:")
-                print(f"   Name: {items[0].get('item_name', 'N/A')[:50]}...")
+                print(f"📋 First item preview:")
+                print(f"   Name: {items[0].get('item_name', 'N/A')[:60]}...")
                 print(f"   Price: {items[0].get('unit_price', 'N/A')}")
         else:
-            print(f"❌ ERROR: File was not created at {output_path}")
+            print(f"❌ ERROR: File was NOT created at {output_path}")
             return False
         
         print(f"✅ Successfully extracted {len(items)} items")
         return True
         
+    except RateLimitError as e:
+        print(f"❌ OpenAI Rate Limit Error: {str(e)}")
+        print("   Your OpenAI account has hit rate limits.")
+        return False
+    except Timeout as e:
+        print(f"❌ OpenAI Timeout Error: {str(e)}")
+        print("   The request took too long. Try with a smaller document.")
+        return False
+    except OpenAIError as e:
+        print(f"❌ OpenAI API Error: {str(e)}")
+        return False
     except json.JSONDecodeError as e:
         print(f"❌ JSON parsing error: {str(e)}")
-        print(f"Raw response preview: {extracted_json[:500]}...")
+        print(f"Raw response preview: {extracted_json[:500] if 'extracted_json' in locals() else 'N/A'}...")
         return False
     except Exception as e:
-        print(f"❌ Error during extraction: {str(e)}")
+        print(f"❌ Unexpected error: {str(e)}")
         import traceback
         traceback.print_exc()
         return False
 
 if __name__ == "__main__":
     print("=" * 60)
-    print("STARTING ITEM EXTRACTION (Day 13 - GPT-3.5-turbo-16k)")
+    print("STARTING ITEM EXTRACTION (Day 13 - Simplified)")
     print("=" * 60)
     
     if len(sys.argv) != 3:
@@ -151,3 +164,25 @@ if __name__ == "__main__":
     print("✅ EXTRACTION COMPLETED SUCCESSFULLY")
     print("=" * 60)
     sys.exit(0)
+```
+
+---
+
+### ✅ What I changed:
+
+1. **Simpler model:** Just `gpt-3.5-turbo` (not 16k)
+2. **Shorter tokens:** 2000 instead of 4000
+3. **Timeout protection:** 60 seconds max
+4. **Better error handling:** Catches rate limits, timeouts, API errors
+5. **API key check:** Verifies key exists before calling
+6. **Shorter prompt:** Less text to process
+
+---
+
+### 📝 Now do this:
+
+1. **Replace `extract_items.py`** with code above
+2. **Save** (Ctrl+S)
+3. **Push to GitHub:**
+```
+   Day 13: Add timeout protection and better error handling
