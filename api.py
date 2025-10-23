@@ -7,18 +7,9 @@ from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
 
-# === IMPROVED CORS CONFIGURATION ===
 CORS(app, resources={
     r"/*": {
-        "origins": [
-            "*",  # Allow all origins (you can restrict this later)
-            "http://localhost:3000",
-            "http://localhost:5173",
-            "https://*.lovable.app",
-            "https://*.lovable.dev",
-            "https://*.onrender.com",
-            "https://id-preview--dd4c7db4-cd3e-4455-b26d-09719fbdc.lovable.app"
-        ],
+        "origins": "*",
         "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
         "allow_headers": ["Content-Type", "Authorization", "Accept"],
         "expose_headers": ["Content-Type"],
@@ -37,7 +28,6 @@ os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
 
-# Add OPTIONS handler for preflight requests
 @app.after_request
 def after_request(response):
     response.headers.add('Access-Control-Allow-Origin', '*')
@@ -49,34 +39,17 @@ def after_request(response):
 def home():
     return jsonify({
         'message': 'Requote AI Backend is running!',
-        'version': 'SV3.1-Day13-CORS-Fixed',
-        'status': 'healthy',
-        'endpoints': {
-            'process_offer1': '/api/process-offer1',
-            'upload_offer2': '/api/upload-offer2',
-            'generate_offer': '/api/generate-offer',
-            'download_offer': '/api/download-offer'
-        }
-    })
-
-@app.route('/api/health', methods=['GET'])
-def health_check():
-    return jsonify({
-        'status': 'ok',
-        'version': 'SV3.1-Day13-CORS-Fixed'
+        'version': 'Day13-Clean',
+        'status': 'healthy'
     })
 
 @app.route('/api/process-offer1', methods=['POST', 'OPTIONS'])
 def api_process_offer1():
-    # Handle preflight OPTIONS request
     if request.method == 'OPTIONS':
         return '', 204
     
     try:
-        print("=" * 70)
-        print("📤 Received request to process Offer 1")
-        print(f"📍 Origin: {request.headers.get('Origin', 'Not provided')}")
-        print("=" * 70)
+        print("Received request to process Offer 1")
         
         if 'file' not in request.files:
             return jsonify({'error': 'No file uploaded'}), 400
@@ -90,66 +63,34 @@ def api_process_offer1():
         filepath = os.path.join(UPLOAD_FOLDER, 'offer1.pdf')
         file.save(filepath)
         
-        print(f"✅ File saved: {filepath}")
-        print(f"📊 File size: {os.path.getsize(filepath)} bytes")
+        print("File saved: " + filepath)
         
-        # === STEP 1: Document AI Processing ===
-        print("\n" + "=" * 70)
-        print("🔍 STEP 1: Processing with Document AI...")
-        print("=" * 70)
-        
+        print("STEP 1: Processing with Document AI...")
         test_process_path = os.path.join(BASE_DIR, 'test_process.py')
         result = subprocess.run(
             ['python', test_process_path],
             capture_output=True,
             text=True,
-            cwd=BASE_DIR
+            cwd=BASE_DIR,
+            timeout=180
         )
         
-        print("STDOUT:", result.stdout)
-        if result.stderr:
-            print("STDERR:", result.stderr)
-        
         if result.returncode != 0:
-            print(f"❌ Document AI Error (exit code {result.returncode})")
+            print("Document AI Error")
             return jsonify({
                 'error': 'Document AI processing failed',
-                'details': result.stderr,
-                'stdout': result.stdout
+                'details': result.stderr
             }), 500
         
-        print("✅ Document AI complete")
+        print("Document AI complete")
         
-        # === STEP 2: Verify extracted_text.txt exists ===
         extracted_text_path = os.path.join(OUTPUT_FOLDER, 'extracted_text.txt')
         
-        print("\n" + "=" * 70)
-        print("🔍 STEP 2: Verifying extracted text file...")
-        print("=" * 70)
-        print(f"📂 Looking for: {extracted_text_path}")
-        print(f"📂 File exists: {os.path.exists(extracted_text_path)}")
+        if not os.path.exists(extracted_text_path):
+            print("Extracted text file not found")
+            return jsonify({'error': 'Extracted text file not found'}), 500
         
-        if os.path.exists(extracted_text_path):
-            file_size = os.path.getsize(extracted_text_path)
-            print(f"✅ File found! Size: {file_size} bytes")
-            
-            # Preview content
-            with open(extracted_text_path, 'r', encoding='utf-8') as f:
-                preview = f.read(200)
-                print(f"📄 Preview: {preview[:100]}...")
-        else:
-            print("❌ FILE NOT FOUND!")
-            print(f"📁 Output folder contents: {os.listdir(OUTPUT_FOLDER)}")
-            return jsonify({
-                'error': 'Extracted text file not found',
-                'expected_path': extracted_text_path,
-                'output_folder_contents': os.listdir(OUTPUT_FOLDER)
-            }), 500
-        
-        # === STEP 3: OpenAI Item Extraction ===
-        print("\n" + "=" * 70)
-        print("🤖 STEP 3: Extracting items with OpenAI...")
-        print("=" * 70)
+        print("STEP 2: Extracting items with OpenAI...")
         
         items_output_path = os.path.join(OUTPUT_FOLDER, 'items_offer1.json')
         extract_items_path = os.path.join(BASE_DIR, 'extract_items.py')
@@ -158,24 +99,19 @@ def api_process_offer1():
             ['python', extract_items_path, extracted_text_path, items_output_path],
             capture_output=True,
             text=True,
-            cwd=BASE_DIR
+            cwd=BASE_DIR,
+            timeout=120
         )
         
-        print("STDOUT:", result.stdout)
-        if result.stderr:
-            print("STDERR:", result.stderr)
-        
         if result.returncode != 0:
-            print(f"❌ Item extraction failed (exit code {result.returncode})")
+            print("Item extraction failed")
             return jsonify({
                 'error': 'Item extraction failed',
-                'details': result.stderr,
-                'stdout': result.stdout
+                'details': result.stderr
             }), 500
         
-        print("✅ Extraction complete")
+        print("Extraction complete")
         
-        # === STEP 4: Load and return results ===
         if not os.path.exists(items_output_path):
             return jsonify({'error': 'Items file not created'}), 500
         
@@ -184,20 +120,17 @@ def api_process_offer1():
         
         items = full_data.get('items', [])
         
-        print("\n" + "=" * 70)
-        print(f"✅ SUCCESS! Extracted {len(items)} items")
-        print("=" * 70)
+        print("SUCCESS! Extracted " + str(len(items)) + " items")
         
         return jsonify({
             'success': True,
             'items_count': len(items),
             'items': items,
-            'full_data': full_data,
-            'message': f'Successfully extracted {len(items)} items'
+            'message': 'Successfully extracted ' + str(len(items)) + ' items'
         })
         
     except Exception as e:
-        print(f"\n❌ CRITICAL ERROR: {str(e)}")
+        print("CRITICAL ERROR: " + str(e))
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
@@ -208,7 +141,7 @@ def api_upload_offer2():
         return '', 204
     
     try:
-        print("📤 Received Offer 2 template")
+        print("Received Offer 2 template")
         
         if 'file' not in request.files:
             return jsonify({'error': 'No file uploaded'}), 400
@@ -221,16 +154,15 @@ def api_upload_offer2():
         filepath = os.path.join(BASE_DIR, 'offer2_template.docx')
         file.save(filepath)
         
-        print(f"✅ Template saved: {filepath}")
+        print("Template saved")
         
         return jsonify({
             'success': True,
-            'message': 'Template uploaded successfully',
-            'filename': 'offer2_template.docx'
+            'message': 'Template uploaded successfully'
         })
         
     except Exception as e:
-        print(f"❌ Error: {str(e)}")
+        print("Error: " + str(e))
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/generate-offer', methods=['POST', 'OPTIONS'])
@@ -239,7 +171,7 @@ def api_generate_offer():
         return '', 204
     
     try:
-        print("🔄 Starting offer generation...")
+        print("Starting offer generation...")
         
         data = request.get_json() or {}
         markup = data.get('markup', 0)
@@ -249,7 +181,7 @@ def api_generate_offer():
             return jsonify({'error': 'No items found. Please process Offer 1 first.'}), 400
         
         if markup > 0:
-            print(f"💰 Applying {markup}% markup...")
+            print("Applying markup...")
             with open(items_path, 'r', encoding='utf-8') as f:
                 full_data = json.load(f)
             
@@ -260,20 +192,46 @@ def api_generate_offer():
             with open(items_path, 'w', encoding='utf-8') as f:
                 json.dump(full_data, f, ensure_ascii=False, indent=2)
         
-        print("📝 Generating final offer...")
+        print("Generating final offer...")
         generate_script_path = os.path.join(BASE_DIR, 'generate_offer_doc.py')
-        result = subprocess.run(
-            ['python', generate_script_path],
-            capture_output=True,
-            text=True,
-            cwd=BASE_DIR
-        )
         
-        if result.returncode != 0:
-            print(f"Error: {result.stderr}")
-            return jsonify({'error': 'Offer generation failed', 'details': result.stderr}), 500
-        
-        print(result.stdout)
+        try:
+            result = subprocess.run(
+                ['python', generate_script_path],
+                capture_output=True,
+                text=True,
+                cwd=BASE_DIR,
+                timeout=60
+            )
+            
+            print("=" * 60)
+            print("GENERATE OFFER OUTPUT:")
+            print("Return code: " + str(result.returncode))
+            print("STDOUT:")
+            print(result.stdout)
+            print("STDERR:")
+            print(result.stderr)
+            print("=" * 60)
+            
+            if result.returncode != 0:
+                error_msg = result.stderr if result.stderr else result.stdout
+                print("Offer generation failed with return code: " + str(result.returncode))
+                print("Full error: " + error_msg)
+                return jsonify({
+                    'error': 'Offer generation failed',
+                    'return_code': result.returncode,
+                    'stderr': result.stderr,
+                    'stdout': result.stdout,
+                    'full_output': error_msg
+                }), 500
+        except subprocess.TimeoutExpired:
+            print("Offer generation timed out after 60 seconds")
+            return jsonify({'error': 'Offer generation timed out'}), 500
+        except Exception as e:
+            print("Exception during offer generation: " + str(e))
+            import traceback
+            traceback.print_exc()
+            return jsonify({'error': 'Exception: ' + str(e)}), 500
         
         output_path = os.path.join(OUTPUT_FOLDER, 'final_offer1.docx')
         if not os.path.exists(output_path):
@@ -283,7 +241,7 @@ def api_generate_offer():
             full_data = json.load(f)
             items = full_data.get('items', [])
         
-        print(f"✅ Final offer generated successfully")
+        print("Final offer generated successfully")
         
         return jsonify({
             'success': True,
@@ -293,7 +251,7 @@ def api_generate_offer():
         })
         
     except Exception as e:
-        print(f"❌ Error: {str(e)}")
+        print("Error: " + str(e))
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
@@ -317,7 +275,7 @@ def api_download_offer():
         )
         
     except Exception as e:
-        print(f"❌ Error: {str(e)}")
+        print("Error: " + str(e))
         return jsonify({'error': str(e)}), 500
 
 def apply_markup_to_items(items, markup_percent):
@@ -334,17 +292,14 @@ def apply_markup_to_items(items, markup_percent):
             new_price = original_price * (1 + markup_percent / 100)
             currency = re.findall(r'[€$£¥]', price_str)
             currency_symbol = currency[0] if currency else '€'
-            item['unit_price'] = f"{currency_symbol}{new_price:.2f}"
+            item['unit_price'] = currency_symbol + str(round(new_price, 2))
             if 'price' in item:
-                item['price'] = f"{currency_symbol}{new_price:.2f}"
+                item['price'] = currency_symbol + str(round(new_price, 2))
     
     return items
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    print("=" * 70)
-    print("🚀 Starting Requote AI Backend Server (Day 13 - CORS Fixed)")
-    print("=" * 70)
-    print(f"📡 Server will be available at: http://0.0.0.0:{port}")
-    print("=" * 70)
+    print("Starting Requote AI Backend Server")
+    print("Server will be available at: http://0.0.0.0:" + str(port))
     app.run(debug=True, host='0.0.0.0', port=port)
