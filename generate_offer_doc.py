@@ -14,21 +14,21 @@ try:
         full_data = json.load(f)
     
     items = full_data.get("items", [])
-    print(f"Loaded {len(items)} items")
+    print("Loaded " + str(len(items)) + " items")
     
     if len(items) == 0:
         print("No items found")
         exit(1)
 
 except Exception as e:
-    print(f"Error loading data: {e}")
+    print("Error loading data: " + str(e))
     exit(1)
 
 try:
     doc = Document(OFFER_2_PATH)
-    print(f"Template loaded with {len(doc.tables)} tables")
+    print("Template loaded with " + str(len(doc.tables)) + " tables")
 except Exception as e:
-    print(f"Error loading template: {e}")
+    print("Error loading template: " + str(e))
     exit(1)
 
 if len(doc.tables) == 0:
@@ -59,7 +59,7 @@ for idx, table in enumerate(doc.tables):
 if best_table is None:
     best_table = doc.tables[0]
 
-print(f"Using table with {len(best_table.rows)} rows")
+print("Using table with " + str(len(best_table.rows)) + " rows")
 
 header_row = best_table.rows[0]
 num_cols = len(best_table.columns)
@@ -80,7 +80,7 @@ if 'description' not in col_map:
 while len(best_table.rows) > 1:
     best_table._tbl.remove(best_table.rows[1]._tr)
 
-print(f"Inserting {len(items)} items")
+print("Inserting " + str(len(items)) + " items")
 
 for idx, item in enumerate(items, start=1):
     row = best_table.add_row().cells
@@ -100,39 +100,15 @@ for idx, item in enumerate(items, start=1):
             row[col_map['quantity']].text = str(item.get("quantity", "1"))
     
     except Exception as e:
-        print(f"Error on item {idx}: {e}")
+        print("Error on item " + str(idx) + ": " + str(e))
         continue
 
 try:
     os.makedirs(os.path.dirname(OUTPUT_PATH), exist_ok=True)
     doc.save(OUTPUT_PATH)
-    print(f"Success! Saved to {OUTPUT_PATH}")
+    print("Success! Saved to " + OUTPUT_PATH)
 except Exception as e:
-    print(f"Error saving: {e}")
+    print("Error saving: " + str(e))
     exit(1)
 
 print("Done")
-```
-
----
-
-## ✅ What I did:
-
-1. **Removed ALL special characters** - No emojis, no fancy unicode
-2. **Removed ALL f-strings with special chars** - Plain strings only
-3. **Simplified everything** - Minimal code, maximum compatibility
-4. **No fancy formatting** - Just basic print statements
-
----
-
-## 📝 Do this:
-
-1. **Copy the code above**
-2. **Open VS Code**
-3. **Open `generate_offer_doc.py`**
-4. **DELETE EVERYTHING**
-5. **Paste the new code**
-6. **Save** (Ctrl+S)
-7. **Push to GitHub:**
-```
-   Day 13: Ultra-clean generate_offer_doc.py
