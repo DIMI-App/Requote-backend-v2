@@ -39,7 +39,7 @@ def after_request(response):
 def home():
     return jsonify({
         'message': 'Requote AI Backend is running!',
-        'version': 'Day13-Clean',
+        'version': 'SV6-UniversalPrompts',
         'status': 'healthy'
     })
 

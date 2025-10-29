@@ -20,28 +20,112 @@ def extract_items_from_text(text, output_path):
         else:
             text_to_process = text
         
-        prompt = """Extract all items with prices from this industrial equipment quotation.
+        # UNIVERSAL PROMPT - Works with ANY quotation format
+        prompt = """You are an AI specialized in extracting pricing information from business quotations across all industries, languages, and formats.
 
-For each item, provide:
-- item_name: Equipment description
-- quantity: Number (use "1" if not specified)
-- unit_price: Price with currency symbol
-- total_price: Total if shown
-- details: Model numbers and specs
+YOUR TASK: Extract EVERY item that has a price or is marked as "included" from the provided supplier quotation document.
 
-Document:
+UNIVERSAL EXTRACTION PRINCIPLES:
+
+1. SCAN THE ENTIRE DOCUMENT
+   - Read every page from beginning to end
+   - Don't stop after finding the first table
+   - Check every section, even those at the very end
+
+2. RECOGNIZE PRICING STRUCTURES
+   Look for ANY of these patterns:
+   
+   A) TABLES with columns like:
+      - Item/Description + Price
+      - No./Position + Name + Cost
+      - Product + Quantity + Unit Price
+      - Code + Description + Amount
+   
+   B) LISTS with prices:
+      - Bulleted items with €/$/£ amounts
+      - Numbered items (1., 2., 3...) followed by prices
+      - Dash-separated items with costs
+   
+   C) TEXT BLOCKS with pricing:
+      - "Item X costs €Y"
+      - "Product A: €B"
+      - "Service 1 - $X per unit"
+   
+   D) SECTION HEADERS indicating pricing:
+      - "Optional Items"
+      - "Accessories" 
+      - "Add-ons"
+      - "Additional Equipment"
+      - "Extras"
+      - "Supplementary Items"
+
+3. IDENTIFY PRICES IN ANY FORMAT
+   Recognize these as valid prices:
+   - With currency symbols: €1,000 | $1,000.00 | £1.000,00 | ¥1000
+   - Numbers only (in "price" columns): 1000 | 1.000 | 1,000.00
+   - With text: "1000 euros" | "USD 1000"
+   - Special indicators: "Included" | "Free" | "No charge" | "Complimentary" | "On request" | "TBD"
+
+4. HANDLE MULTI-LANGUAGE DOCUMENTS
+   Column headers can be in ANY language:
+   - English: "Description", "Price", "Quantity", "Total"
+   - Spanish: "Descripción", "Precio", "Cantidad"
+   - German: "Beschreibung", "Preis", "Menge"
+   - French: "Description", "Prix", "Quantité"
+   - Ukrainian: "Опис", "Ціна", "Кількість"
+   - Italian: "Descrizione", "Prezzo", "Quantità"
+   
+   Identify columns by their POSITION and CONTENT, not just their names.
+
+5. EXTRACT COMPLETE INFORMATION
+   For each item, capture:
+   - Position/Number (if present)
+   - Full description (including model numbers, specs, technical details)
+   - Unit price
+   - Quantity (if specified, otherwise assume 1)
+   - Total price (if calculated)
+   - Any special notes (included, optional, required, etc.)
+
+6. COMMON QUOTATION SECTIONS
+   Items can appear in these sections:
+   - Main equipment/products table (usually near the beginning)
+   - Optional items section (middle or end)
+   - Accessories list
+   - Service packages
+   - Warranties or support plans
+   - Shipping/packaging options
+   - Installation services
+   - Training or documentation
+   - Spare parts
+
+7. DO NOT SKIP
+   - Items at the very end of the document
+   - Items in separate tables on different pages
+   - Items with price "0" or "Included" (these are important!)
+   - Items in footnotes or appendices
+   - Items in smaller font or different formatting
+
+Document text:
 """ + text_to_process + """
 
-Return only JSON array:
-[{"item_name": "...", "quantity": "1", "unit_price": "...", "total_price": "...", "details": "..."}]
+Return ONLY a JSON array with this exact structure:
+[{"item_name": "Full item description", "quantity": "1", "unit_price": "€1,000.00", "total_price": "€1,000.00", "details": "Model numbers and specs"}]
+
+VALIDATION CHECKLIST before responding:
+- ✓ Did I read the ENTIRE document?
+- ✓ Did I check ALL pages?
+- ✓ Did I look for items beyond the first table?
+- ✓ Did I include items marked "Included"?
+- ✓ Did I check sections labeled "optional" or "accessories"?
+- ✓ Is my item count reasonable for this document size?
 """
         
-        print("Calling OpenAI...")
+        print("Calling OpenAI with UNIVERSAL PROMPT...")
         
         response = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
             messages=[
-                {"role": "system", "content": "Extract pricing data. Return only JSON."},
+                {"role": "system", "content": "You are an expert at extracting ALL pricing data from quotations. Return only valid JSON."},
                 {"role": "user", "content": prompt}
             ],
             temperature=0,
@@ -82,7 +166,7 @@ Return only JSON array:
             print("ERROR: File not created")
             return False
         
-        print("Successfully extracted " + str(len(items)) + " items")
+        print("Successfully extracted " + str(len(items)) + " items using UNIVERSAL PROMPT")
         return True
         
     except Exception as e:
@@ -93,7 +177,7 @@ Return only JSON array:
 
 if __name__ == "__main__":
     print("=" * 60)
-    print("ITEM EXTRACTION - Day 13")
+    print("ITEM EXTRACTION - SV6 with UNIVERSAL PROMPTS")
     print("=" * 60)
     
     if len(sys.argv) != 3:
