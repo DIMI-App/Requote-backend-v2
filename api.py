@@ -4,6 +4,8 @@ import os
 import json
 import subprocess
 from werkzeug.utils import secure_filename
+import threading
+import time
 
 app = Flask(__name__)
 
@@ -28,6 +30,14 @@ os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
 
+# Store processing status
+processing_status = {
+    'status': 'idle',
+    'message': '',
+    'items_count': 0,
+    'items': []
+}
+
 @app.after_request
 def after_request(response):
     response.headers.add('Access-Control-Allow-Origin', '*')
@@ -39,12 +49,56 @@ def after_request(response):
 def home():
     return jsonify({
         'message': 'Requote AI Backend is running!',
-        'version': 'SV7-OpenAI-Direct',
+        'version': 'SV7-Async',
         'status': 'healthy'
     })
 
+def process_pdf_background(filepath):
+    global processing_status
+    
+    try:
+        processing_status['status'] = 'processing'
+        processing_status['message'] = 'Extracting items from PDF...'
+        
+        items_output_path = os.path.join(OUTPUT_FOLDER, 'items_offer1.json')
+        extract_script_path = os.path.join(BASE_DIR, 'extract_pdf_direct.py')
+        
+        result = subprocess.run(
+            ['python', extract_script_path],
+            capture_output=True,
+            text=True,
+            cwd=BASE_DIR,
+            timeout=300
+        )
+        
+        if result.returncode != 0:
+            processing_status['status'] = 'error'
+            processing_status['message'] = 'Extraction failed: ' + result.stderr
+            return
+        
+        if not os.path.exists(items_output_path):
+            processing_status['status'] = 'error'
+            processing_status['message'] = 'Items file not created'
+            return
+        
+        with open(items_output_path, 'r', encoding='utf-8') as f:
+            full_data = json.load(f)
+        
+        items = full_data.get('items', [])
+        
+        processing_status['status'] = 'completed'
+        processing_status['message'] = f'Successfully extracted {len(items)} items'
+        processing_status['items_count'] = len(items)
+        processing_status['items'] = items
+        
+    except Exception as e:
+        processing_status['status'] = 'error'
+        processing_status['message'] = str(e)
+
 @app.route('/api/process-offer1', methods=['POST', 'OPTIONS'])
 def api_process_offer1():
+    global processing_status
+    
     if request.method == 'OPTIONS':
         return '', 204
     
@@ -65,50 +119,36 @@ def api_process_offer1():
         
         print("File saved: " + filepath)
         
-        print("Processing with OpenAI Vision (Direct PDF extraction)...")
+        # Reset status
+        processing_status = {
+            'status': 'processing',
+            'message': 'Starting extraction...',
+            'items_count': 0,
+            'items': []
+        }
         
-        items_output_path = os.path.join(OUTPUT_FOLDER, 'items_offer1.json')
-        extract_script_path = os.path.join(BASE_DIR, 'extract_pdf_direct.py')
+        # Start background thread
+        thread = threading.Thread(target=process_pdf_background, args=(filepath,))
+        thread.daemon = True
+        thread.start()
         
-        result = subprocess.run(
-            ['python', extract_script_path],
-            capture_output=True,
-            text=True,
-            cwd=BASE_DIR,
-            timeout=300
-        )
-        
-        if result.returncode != 0:
-            print("Extraction failed")
-            return jsonify({
-                'error': 'PDF extraction failed',
-                'details': result.stderr
-            }), 500
-        
-        print("Extraction complete")
-        
-        if not os.path.exists(items_output_path):
-            return jsonify({'error': 'Items file not created'}), 500
-        
-        with open(items_output_path, 'r', encoding='utf-8') as f:
-            full_data = json.load(f)
-        
-        items = full_data.get('items', [])
-        
-        print("SUCCESS! Extracted " + str(len(items)) + " items")
-        
+        # Return immediately
         return jsonify({
             'success': True,
-            'items_count': len(items),
-            'items': items,
-            'message': 'Successfully extracted ' + str(len(items)) + ' items'
+            'message': 'Processing started. Poll /api/status for updates.',
+            'status': 'processing'
         })
         
     except Exception as e:
-        print("CRITICAL ERROR: " + str(e))
-        import traceback
-        traceback.print_exc()
+        print("ERROR: " + str(e))
         return jsonify({'error': str(e)}), 500
+
+@app.route('/api/status', methods=['GET', 'OPTIONS'])
+def api_status():
+    if request.method == 'OPTIONS':
+        return '', 204
+    
+    return jsonify(processing_status)
 
 @app.route('/api/upload-offer2', methods=['POST', 'OPTIONS'])
 def api_upload_offer2():
@@ -170,43 +210,19 @@ def api_generate_offer():
         print("Generating final offer...")
         generate_script_path = os.path.join(BASE_DIR, 'generate_offer_doc.py')
         
-        try:
-            result = subprocess.run(
-                ['python', generate_script_path],
-                capture_output=True,
-                text=True,
-                cwd=BASE_DIR,
-                timeout=60
-            )
-            
-            print("=" * 60)
-            print("GENERATE OFFER OUTPUT:")
-            print("Return code: " + str(result.returncode))
-            print("STDOUT:")
-            print(result.stdout)
-            print("STDERR:")
-            print(result.stderr)
-            print("=" * 60)
-            
-            if result.returncode != 0:
-                error_msg = result.stderr if result.stderr else result.stdout
-                print("Offer generation failed with return code: " + str(result.returncode))
-                print("Full error: " + error_msg)
-                return jsonify({
-                    'error': 'Offer generation failed',
-                    'return_code': result.returncode,
-                    'stderr': result.stderr,
-                    'stdout': result.stdout,
-                    'full_output': error_msg
-                }), 500
-        except subprocess.TimeoutExpired:
-            print("Offer generation timed out after 60 seconds")
-            return jsonify({'error': 'Offer generation timed out'}), 500
-        except Exception as e:
-            print("Exception during offer generation: " + str(e))
-            import traceback
-            traceback.print_exc()
-            return jsonify({'error': 'Exception: ' + str(e)}), 500
+        result = subprocess.run(
+            ['python', generate_script_path],
+            capture_output=True,
+            text=True,
+            cwd=BASE_DIR,
+            timeout=60
+        )
+        
+        if result.returncode != 0:
+            return jsonify({
+                'error': 'Offer generation failed',
+                'details': result.stderr
+            }), 500
         
         output_path = os.path.join(OUTPUT_FOLDER, 'final_offer1.docx')
         if not os.path.exists(output_path):
@@ -215,8 +231,6 @@ def api_generate_offer():
         with open(items_path, 'r', encoding='utf-8') as f:
             full_data = json.load(f)
             items = full_data.get('items', [])
-        
-        print("Final offer generated successfully")
         
         return jsonify({
             'success': True,
@@ -227,8 +241,6 @@ def api_generate_offer():
         
     except Exception as e:
         print("Error: " + str(e))
-        import traceback
-        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/download-offer', methods=['GET', 'OPTIONS'])
@@ -275,6 +287,6 @@ def apply_markup_to_items(items, markup_percent):
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    print("Starting Requote AI Backend Server - SV7 OpenAI Direct")
-    print("Server will be available at: http://0.0.0.0:" + str(port))
+    print("Starting Requote AI Backend - SV7 Async")
+    print("Server at: http://0.0.0.0:" + str(port))
     app.run(debug=True, host='0.0.0.0', port=port)
