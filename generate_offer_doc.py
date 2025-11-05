@@ -1,226 +1,346 @@
-import json
 import os
-from docx import Document
-from docx.shared import Pt, RGBColor
-from docx.enum.text import WD_ALIGN_PARAGRAPH
+import sys
+import json
+import openai
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-OFFER_2_PATH = os.path.join(BASE_DIR, "offer2_template.docx")
-OFFER_1_DATA_PATH = os.path.join(BASE_DIR, "outputs", "items_offer1.json")
-OUTPUT_PATH = os.path.join(BASE_DIR, "outputs", "final_offer1.docx")
+openai.api_key = os.environ.get('OPENAI_API_KEY')
 
-print("=" * 60)
-print("SMART OFFER GENERATION - SV6")
-print("=" * 60)
-
-# Load extracted items
-try:
-    with open(OFFER_1_DATA_PATH, "r", encoding="utf-8") as f:
-        full_data = json.load(f)
-    
-    items = full_data.get("items", [])
-    print(f"✓ Loaded {len(items)} items from extraction")
-    
-    if len(items) == 0:
-        print("✗ No items found in extraction")
-        exit(1)
-
-except Exception as e:
-    print(f"✗ Error loading data: {str(e)}")
-    exit(1)
-
-# Load template
-try:
-    doc = Document(OFFER_2_PATH)
-    print(f"✓ Template loaded: {len(doc.tables)} tables found")
-except Exception as e:
-    print(f"✗ Error loading template: {str(e)}")
-    exit(1)
-
-if len(doc.tables) == 0:
-    print("✗ No tables in template")
-    exit(1)
-
-# SMART TABLE DETECTION
-def analyze_table(table):
-    """Analyze table to determine if it's a pricing table"""
-    if len(table.rows) < 2:
-        return 0, {}
-    
-    header_text = ' '.join([cell.text.lower() for cell in table.rows[0].cells])
-    
-    score = 0
-    col_map = {}
-    
-    # Check for pricing indicators in ANY language
-    pricing_keywords = ['price', 'ціна', 'precio', 'preis', 'prix', 'prezzo', 'cost', 'amount', 'сума']
-    desc_keywords = ['description', 'опис', 'descripción', 'beschreibung', 'item', 'product', 'позиція']
-    qty_keywords = ['quantity', 'кількість', 'cantidad', 'menge', 'quantité', 'qty', 'amt']
-    
-    for keyword in pricing_keywords:
-        if keyword in header_text:
-            score += 2
-            break
-    
-    for keyword in desc_keywords:
-        if keyword in header_text:
-            score += 2
-            break
-    
-    for keyword in qty_keywords:
-        if keyword in header_text:
-            score += 1
-            break
-    
-    # Map columns by content, not just names
-    for col_idx, cell in enumerate(table.rows[0].cells):
-        text = cell.text.lower().strip()
-        
-        # Position column (usually first, short)
-        if col_idx == 0 and (len(text) < 10 or 'поз' in text or 'no' in text or '#' in text):
-            col_map['position'] = col_idx
-        
-        # Description column (look for keywords)
-        if any(kw in text for kw in desc_keywords):
-            col_map['description'] = col_idx
-        
-        # Price column
-        if any(kw in text for kw in pricing_keywords) and 'сума' not in text:
-            col_map['price'] = col_idx
-        
-        # Quantity column
-        if any(kw in text for kw in qty_keywords):
-            col_map['quantity'] = col_idx
-        
-        # Total/Sum column (usually last)
-        if 'сума' in text or 'total' in text or 'sum' in text or 'amount' in text:
-            col_map['total'] = col_idx
-    
-    # Smart fallback: assume standard table structure
-    if 'description' not in col_map and len(table.columns) >= 2:
-        col_map['description'] = 1  # Usually second column
-    
-    if 'price' not in col_map and len(table.columns) >= 3:
-        col_map['price'] = 2  # Usually third column
-    
-    return score, col_map
-
-# Find the best pricing table
-best_table = None
-best_score = 0
-best_col_map = {}
-
-print("\nAnalyzing tables...")
-for idx, table in enumerate(doc.tables):
-    score, col_map = analyze_table(table)
-    print(f"  Table {idx + 1}: score={score}, columns={len(table.columns)}, mapped={len(col_map)} cols")
-    
-    if score > best_score:
-        best_score = score
-        best_table = table
-        best_col_map = col_map
-
-if best_table is None:
-    print("✗ Could not find pricing table")
-    exit(1)
-
-print(f"\n✓ Selected pricing table with score {best_score}")
-print(f"  Column mapping: {best_col_map}")
-
-# Preserve header row formatting
-header_row = best_table.rows[0]
-header_cells_format = []
-
-for cell in header_row.cells:
-    cell_format = {
-        'text': cell.text,
-        'bold': False,
-        'font_size': None,
-        'alignment': None
-    }
-    
-    if len(cell.paragraphs) > 0:
-        para = cell.paragraphs[0]
-        if len(para.runs) > 0:
-            run = para.runs[0]
-            cell_format['bold'] = run.bold
-            if run.font.size:
-                cell_format['font_size'] = run.font.size
-        cell_format['alignment'] = para.alignment
-    
-    header_cells_format.append(cell_format)
-
-# Clear existing data rows (keep header)
-print(f"\nClearing {len(best_table.rows) - 1} existing data rows...")
-while len(best_table.rows) > 1:
-    best_table._tbl.remove(best_table.rows[1]._tr)
-
-# Insert items
-print(f"\nInserting {len(items)} items...")
-for idx, item in enumerate(items, start=1):
-    row = best_table.add_row().cells
-    
+def extract_items_from_text(text, output_path):
     try:
-        # Position column
-        if 'position' in best_col_map and best_col_map['position'] < len(row):
-            row[best_col_map['position']].text = f"{idx}."
+        if not openai.api_key:
+            print("ERROR: OPENAI_API_KEY not set")
+            return False
         
-        # Description column
-        if 'description' in best_col_map and best_col_map['description'] < len(row):
-            desc = item.get("item_name", "")
-            if item.get("details"):
-                desc = f"{desc}\n{item.get('details')}"
-            row[best_col_map['description']].text = desc
+        print("API key found (length: " + str(len(openai.api_key)) + ")")
         
-        # Price column
-        if 'price' in best_col_map and best_col_map['price'] < len(row):
-            price = str(item.get("unit_price", ""))
-            # Clean price formatting
-            price = price.replace("€", "").replace("$", "").replace("£", "").strip()
-            row[best_col_map['price']].text = price
+        # Increased limit for longer documents
+        max_chars = 30000
+        if len(text) > max_chars:
+            print("Text is " + str(len(text)) + " chars, truncating to " + str(max_chars))
+            text_to_process = text[:max_chars]
+        else:
+            text_to_process = text
         
-        # Quantity column
-        if 'quantity' in best_col_map and best_col_map['quantity'] < len(row):
-            row[best_col_map['quantity']].text = str(item.get("quantity", "1"))
+        print(f"Processing {len(text_to_process)} characters")
         
-        # Total column (calculate if needed)
-        if 'total' in best_col_map and best_col_map['total'] < len(row):
-            try:
-                price_val = float(str(item.get("unit_price", "0")).replace("€", "").replace(",", "").strip())
-                qty_val = float(str(item.get("quantity", "1")))
-                total_val = price_val * qty_val
-                row[best_col_map['total']].text = f"{total_val:,.0f}".replace(",", " ")
-            except:
-                row[best_col_map['total']].text = ""
+        # COMPLETION-BASED UNIVERSAL PROMPT
+        prompt = """You are an AI specialized in extracting pricing information from business quotations across all industries, languages, and formats.
+
+YOUR TASK: Extract EVERY item that has a price or is marked as "included" from the provided supplier quotation document.
+
+═══════════════════════════════════════════════════════════
+CRITICAL: DOCUMENT COMPLETENESS RULES
+═══════════════════════════════════════════════════════════
+
+YOU MUST EXTRACT UNTIL YOU MEET ALL OF THESE CONDITIONS:
+
+1. ✓ REACHED END OF PRICING CONTENT
+   Stop only when you see sections like:
+   - "Terms and Conditions" / "Terms of Sale" / "General Terms"
+   - "Payment Terms" / "Payment Conditions"
+   - "Delivery Information" / "Shipping Terms"
+   - "Warranty Information" (non-priced warranty text)
+   - "Legal Disclaimers" / "Liability"
+   - Clear end of document
+
+2. ✓ NO MORE PRICE INDICATORS
+   If you see ANY of these after your last item, keep extracting:
+   - Currency symbols: €, $, £, ¥, ₴, USD, EUR, GBP
+   - Price formats: "1,000.00" or "1.000,00" or "1 000"
+   - Words: "Included", "Free", "No charge", "Optional", "Extra charge", "Additional cost"
+   - Numbers in price-like columns or tables
+   - Phrases: "price in €", "cost of", "amount"
+
+3. ✓ ALL SECTIONS PROCESSED
+   Check you extracted from ALL sections containing prices:
+   - Main offer/economic section (always present)
+   - "Optional" sections
+   - "Accessories" sections
+   - "Additional Equipment" sections
+   - "Equipments" or "Equipment for" sections
+   - "Packing" or "Shipping" or "Transport" options
+   - "Add-ons" or "Extras" or "Supplementary"
+   - "General Accessories" sections
+   - ANY section with a table containing prices
+
+4. ✓ NO CONTINUATION INDICATORS
+   If you see these phrases, keep reading and extracting:
+   - "See next page" / "Continued on next page"
+   - "Additional options below"
+   - "Available as option" / "Optional items"
+   - Section headers suggesting more content
+   - Page numbers continuing (Page 1 of 5, etc.)
+   - "More items available"
+
+═══════════════════════════════════════════════════════════
+EXTRACTION PRINCIPLES
+═══════════════════════════════════════════════════════════
+
+1. SCAN THE ENTIRE DOCUMENT
+   - Read from beginning to END
+   - Don't stop after finding the first table
+   - Check every page, every section
+   - Look for items at the very end too
+
+2. RECOGNIZE ALL PRICING STRUCTURES
+   
+   A) TABLES with columns:
+      - Description + Price
+      - Item + Cost + Quantity
+      - Product + Unit Price + Total
+      - No. + Name + Amount
+   
+   B) LISTS with prices:
+      - Bulleted items with prices
+      - Numbered lists (1., 2., 3...) with costs
+      - Description followed by price on same line
+   
+   C) TEXT BLOCKS:
+      - "Item X: €Y"
+      - "Product A costs $B"
+      - Inline pricing in paragraphs
+   
+   D) SECTION-BASED:
+      - Items under "Optional Items"
+      - Items under "Accessories"
+      - Items under "Add-ons"
+      - Items under "Packing Options"
+
+3. IDENTIFY PRICES IN ANY FORMAT
+   Valid price indicators:
+   - €1,000 | €1.000 | €1 000
+   - $1,000.00 | 1000 USD
+   - £1.000,00 | GBP 1000
+   - Just numbers in price columns: 5000
+   - Text: "Included" | "Free" | "No charge" | "Complimentary" | "TBD" | "On request"
+
+4. HANDLE MULTI-LANGUAGE DOCUMENTS
+   Recognize headers in ANY language:
+   - English: "Description", "Price", "Quantity", "Total", "Optional"
+   - Ukrainian: "Опис", "Ціна", "Кількість", "Сума"
+   - Spanish: "Descripción", "Precio", "Cantidad"
+   - German: "Beschreibung", "Preis", "Menge"
+   - French: "Description", "Prix", "Quantité"
+   - Italian: "Descrizione", "Prezzo", "Quantità"
+
+5. EXTRACT COMPLETE INFORMATION
+   For each item capture:
+   - Full description (including model numbers, specifications)
+   - Unit price (with currency)
+   - Quantity (default to "1" if not specified)
+   - Total price (if shown)
+   - Any notes (optional, included, required, etc.)
+
+6. COMMON SECTIONS TO CHECK
+   Always look for items in:
+   - Main pricing table
+   - Optional items section
+   - Accessories tables
+   - Equipment add-ons
+   - Service packages
+   - Warranties (priced ones)
+   - Shipping/packing options
+   - Installation services
+   - Training or documentation
+   - Spare parts lists
+
+7. NEVER SKIP
+   - Items at document end
+   - Items on last pages
+   - Items marked "Included" (these count!)
+   - Items with price "0"
+   - Items in multiple tables
+   - Items in appendices
+   - Small-font items
+   - Items in "optional" sections
+
+═══════════════════════════════════════════════════════════
+SELF-VALIDATION CHECKLIST (MANDATORY)
+═══════════════════════════════════════════════════════════
+
+Before returning your JSON, verify ALL of these:
+
+Q1: Did I read until the end of the document?
+    → Check: Is there text after my last item?
+    → If YES: Review that text for prices
+
+Q2: Is there ANY pricing information after my last extracted item?
+    → Look for: €, $, £, numbers, "Included", price columns
+    → If YES: Go back and extract those items
+
+Q3: Did I process every section header that might contain items?
+    → Look for: "Optional", "Accessories", "Additional", "Packing", "Equipment"
+    → If found: Extract all items from those sections
+
+Q4: Did I extract items marked as "Included" or "Free"?
+    → These are valid items even without numeric prices
+    → If missed: Add them to extraction
+
+Q5: Did I check for accessories/add-ons/packing sections?
+    → These sections often appear AFTER the main table
+    → If not checked: Scan document again
+
+Q6: Are there multiple tables in the document?
+    → If YES: Extract from ALL tables, not just the first one
+
+Q7: Did I see continuation indicators?
+    → Look for: "See next page", "Continued", "Additional options"
+    → If YES: Continue extracting
+
+═══════════════════════════════════════════════════════════
+COMPLETION DETECTION
+═══════════════════════════════════════════════════════════
+
+You have finished extracting when ALL of these are true:
+
+✓ No more currency symbols or numbers in price format after last item
+✓ No more section headers indicating pricing content
+✓ Reached sections like "Terms", "Conditions", "Payment", "Delivery", "Warranty"
+✓ No tables with price columns remaining
+✓ Document ends or only legal/administrative text remains
+
+═══════════════════════════════════════════════════════════
+
+Document text:
+""" + text_to_process + """
+
+═══════════════════════════════════════════════════════════
+
+Return ONLY a JSON array with this exact structure:
+[{"item_name": "Full item description", "quantity": "1", "unit_price": "€1,000.00", "total_price": "€1,000.00", "details": "Model numbers and specs"}]
+
+IMPORTANT REMINDERS:
+- Extract from ENTIRE document, not just first section
+- Include items marked "Included" or "Free"
+- Check for "optional" and "accessories" sections
+- Don't stop until you reach non-pricing content
+- Quality over speed - completeness is critical
+"""
         
-        # Apply basic formatting to all cells
-        for cell in row:
-            if len(cell.paragraphs) > 0:
-                para = cell.paragraphs[0]
-                if len(para.runs) > 0:
-                    run = para.runs[0]
-                    run.font.size = Pt(10)
+        print("Calling OpenAI with COMPLETION-BASED UNIVERSAL PROMPT...")
+        print("Using self-validation approach - no arbitrary item counts")
         
-        if idx % 10 == 0:
-            print(f"  Inserted {idx} items...")
-    
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo-16k",
+            messages=[
+                {
+                    "role": "system", 
+                    "content": "You are an expert at extracting ALL pricing data from quotations. You extract until the document is complete, not until you reach a certain count. You validate your own work by checking for remaining price indicators. Return only valid JSON."
+                },
+                {
+                    "role": "user", 
+                    "content": prompt
+                }
+            ],
+            temperature=0,
+            max_tokens=4000,
+            request_timeout=120
+        )
+        
+        print("Received response from OpenAI")
+        
+        extracted_json = response.choices[0].message.content.strip()
+        
+        # Clean up JSON formatting
+        if extracted_json.startswith("```json"):
+            extracted_json = extracted_json.replace("```json", "").replace("```", "").strip()
+        elif extracted_json.startswith("```"):
+            extracted_json = extracted_json.replace("```", "").strip()
+        
+        items = json.loads(extracted_json)
+        
+        print("✓ Validated JSON structure")
+        print(f"✓ Extracted {len(items)} items")
+        
+        # Quality checks (not arbitrary counts, but logical validation)
+        if len(items) == 0:
+            print("✗ ERROR: No items extracted - this is likely wrong")
+            return False
+        
+        if len(items) == 1:
+            print("⚠ WARNING: Only 1 item extracted - verify this is a single-item quotation")
+        
+        # Check for price diversity (good indicator of completeness)
+        prices = []
+        included_count = 0
+        for item in items:
+            price = str(item.get('unit_price', '')).lower()
+            if 'included' in price or 'free' in price:
+                included_count += 1
+            else:
+                prices.append(price)
+        
+        print(f"  - Items with numeric prices: {len(prices)}")
+        print(f"  - Items marked 'Included/Free': {included_count}")
+        
+        # Save to file
+        output_dir = os.path.dirname(output_path)
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
+        
+        full_data = {"items": items}
+        
+        with open(output_path, 'w', encoding='utf-8') as f:
+            json.dump(full_data, f, indent=2, ensure_ascii=False)
+        
+        if os.path.exists(output_path):
+            file_size = os.path.getsize(output_path)
+            print(f"✓ File created: {file_size} bytes")
+            
+            if len(items) > 0:
+                first_item = items[0].get('item_name', 'N/A')[:60]
+                last_item = items[-1].get('item_name', 'N/A')[:60]
+                print(f"  - First item: {first_item}")
+                print(f"  - Last item: {last_item}")
+        else:
+            print("✗ ERROR: File not created")
+            return False
+        
+        print(f"✓ Successfully extracted {len(items)} items using COMPLETION-BASED approach")
+        return True
+        
+    except json.JSONDecodeError as e:
+        print(f"✗ JSON parsing error: {str(e)}")
+        print("OpenAI response was not valid JSON")
+        return False
     except Exception as e:
-        print(f"  ✗ Error on item {idx}: {str(e)}")
-        continue
+        print(f"✗ ERROR: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return False
 
-print(f"\n✓ Successfully inserted {len(items)} items")
-
-# Save document
-try:
-    os.makedirs(os.path.dirname(OUTPUT_PATH), exist_ok=True)
-    doc.save(OUTPUT_PATH)
-    file_size = os.path.getsize(OUTPUT_PATH)
-    print(f"\n✓ Document saved: {OUTPUT_PATH}")
-    print(f"  File size: {file_size:,} bytes")
-except Exception as e:
-    print(f"\n✗ Error saving: {str(e)}")
-    exit(1)
-
-print("=" * 60)
-print("GENERATION COMPLETE")
-print("=" * 60)
+if __name__ == "__main__":
+    print("=" * 60)
+    print("ITEM EXTRACTION - SV6 COMPLETION-BASED")
+    print("=" * 60)
+    
+    if len(sys.argv) != 3:
+        print("✗ ERROR: Wrong arguments")
+        print("Usage: python extract_items.py <input> <output>")
+        sys.exit(1)
+    
+    input_text_path = sys.argv[1]
+    output_json_path = sys.argv[2]
+    
+    print(f"Input:  {input_text_path}")
+    print(f"Output: {output_json_path}")
+    
+    if not os.path.exists(input_text_path):
+        print("✗ ERROR: Input file not found")
+        sys.exit(1)
+    
+    with open(input_text_path, 'r', encoding='utf-8') as f:
+        text = f.read()
+    
+    print(f"✓ Read {len(text)} characters from input")
+    
+    success = extract_items_from_text(text, output_json_path)
+    
+    if not success:
+        print("\n✗ Extraction failed")
+        sys.exit(1)
+    
+    print("\n" + "=" * 60)
+    print("EXTRACTION COMPLETED SUCCESSFULLY")
+    print("=" * 60)
+    sys.exit(0)
