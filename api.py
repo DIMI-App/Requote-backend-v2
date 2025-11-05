@@ -75,7 +75,7 @@ def api_process_offer1():
             capture_output=True,
             text=True,
             cwd=BASE_DIR,
-            timeout=180
+            timeout=300
         )
         
         if result.returncode != 0:
