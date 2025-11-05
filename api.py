@@ -39,7 +39,7 @@ def after_request(response):
 def home():
     return jsonify({
         'message': 'Requote AI Backend is running!',
-        'version': 'SV6-UniversalPrompts',
+        'version': 'SV7-OpenAI-Direct',
         'status': 'healthy'
     })
 
@@ -65,10 +65,13 @@ def api_process_offer1():
         
         print("File saved: " + filepath)
         
-        print("STEP 1: Processing with Document AI...")
-        test_process_path = os.path.join(BASE_DIR, 'test_process.py')
+        print("Processing with OpenAI Vision (Direct PDF extraction)...")
+        
+        items_output_path = os.path.join(OUTPUT_FOLDER, 'items_offer1.json')
+        extract_script_path = os.path.join(BASE_DIR, 'extract_pdf_direct.py')
+        
         result = subprocess.run(
-            ['python', test_process_path],
+            ['python', extract_script_path],
             capture_output=True,
             text=True,
             cwd=BASE_DIR,
@@ -76,37 +79,9 @@ def api_process_offer1():
         )
         
         if result.returncode != 0:
-            print("Document AI Error")
+            print("Extraction failed")
             return jsonify({
-                'error': 'Document AI processing failed',
-                'details': result.stderr
-            }), 500
-        
-        print("Document AI complete")
-        
-        extracted_text_path = os.path.join(OUTPUT_FOLDER, 'extracted_text.txt')
-        
-        if not os.path.exists(extracted_text_path):
-            print("Extracted text file not found")
-            return jsonify({'error': 'Extracted text file not found'}), 500
-        
-        print("STEP 2: Extracting items with OpenAI...")
-        
-        items_output_path = os.path.join(OUTPUT_FOLDER, 'items_offer1.json')
-        extract_items_path = os.path.join(BASE_DIR, 'extract_items.py')
-        
-        result = subprocess.run(
-            ['python', extract_items_path, extracted_text_path, items_output_path],
-            capture_output=True,
-            text=True,
-            cwd=BASE_DIR,
-            timeout=120
-        )
-        
-        if result.returncode != 0:
-            print("Item extraction failed")
-            return jsonify({
-                'error': 'Item extraction failed',
+                'error': 'PDF extraction failed',
                 'details': result.stderr
             }), 500
         
@@ -300,6 +275,6 @@ def apply_markup_to_items(items, markup_percent):
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    print("Starting Requote AI Backend Server")
+    print("Starting Requote AI Backend Server - SV7 OpenAI Direct")
     print("Server will be available at: http://0.0.0.0:" + str(port))
     app.run(debug=True, host='0.0.0.0', port=port)
