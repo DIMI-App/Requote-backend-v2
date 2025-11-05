@@ -13,124 +13,97 @@ def extract_items_from_text(text, output_path):
         
         print("API key found (length: " + str(len(openai.api_key)) + ")")
         
-        max_chars = 12000
+        max_chars = 30000
         if len(text) > max_chars:
             print("Text is " + str(len(text)) + " chars, truncating to " + str(max_chars))
             text_to_process = text[:max_chars]
         else:
             text_to_process = text
         
-        # UNIVERSAL PROMPT - Works with ANY quotation format
+        print(f"Processing {len(text_to_process)} characters")
+        
         prompt = """You are an AI specialized in extracting pricing information from business quotations across all industries, languages, and formats.
 
 YOUR TASK: Extract EVERY item that has a price or is marked as "included" from the provided supplier quotation document.
 
-UNIVERSAL EXTRACTION PRINCIPLES:
+DOCUMENT COMPLETENESS RULES - YOU MUST EXTRACT UNTIL ALL CONDITIONS ARE MET:
 
-1. SCAN THE ENTIRE DOCUMENT
-   - Read every page from beginning to end
-   - Don't stop after finding the first table
-   - Check every section, even those at the very end
+1. REACHED END OF PRICING CONTENT
+   Stop only when you see: "Terms and Conditions", "Payment Terms", "Delivery Information", "Warranty Information", "Legal Disclaimers", or clear end of document
 
-2. RECOGNIZE PRICING STRUCTURES
-   Look for ANY of these patterns:
-   
-   A) TABLES with columns like:
-      - Item/Description + Price
-      - No./Position + Name + Cost
-      - Product + Quantity + Unit Price
-      - Code + Description + Amount
-   
-   B) LISTS with prices:
-      - Bulleted items with €/$/£ amounts
-      - Numbered items (1., 2., 3...) followed by prices
-      - Dash-separated items with costs
-   
-   C) TEXT BLOCKS with pricing:
-      - "Item X costs €Y"
-      - "Product A: €B"
-      - "Service 1 - $X per unit"
-   
-   D) SECTION HEADERS indicating pricing:
-      - "Optional Items"
-      - "Accessories" 
-      - "Add-ons"
-      - "Additional Equipment"
-      - "Extras"
-      - "Supplementary Items"
+2. NO MORE PRICE INDICATORS
+   If you see ANY of these after your last item, keep extracting: €, $, £, ¥, USD, EUR, GBP, "Included", "Free", "Optional", "price in", numbers in price columns
 
-3. IDENTIFY PRICES IN ANY FORMAT
-   Recognize these as valid prices:
-   - With currency symbols: €1,000 | $1,000.00 | £1.000,00 | ¥1000
-   - Numbers only (in "price" columns): 1000 | 1.000 | 1,000.00
-   - With text: "1000 euros" | "USD 1000"
-   - Special indicators: "Included" | "Free" | "No charge" | "Complimentary" | "On request" | "TBD"
+3. ALL SECTIONS PROCESSED
+   Extract from: Main offer, "Optional" sections, "Accessories" sections, "Additional Equipment", "Packing" options, "Add-ons", ANY section with prices
 
-4. HANDLE MULTI-LANGUAGE DOCUMENTS
-   Column headers can be in ANY language:
-   - English: "Description", "Price", "Quantity", "Total"
-   - Spanish: "Descripción", "Precio", "Cantidad"
-   - German: "Beschreibung", "Preis", "Menge"
-   - French: "Description", "Prix", "Quantité"
-   - Ukrainian: "Опис", "Ціна", "Кількість"
-   - Italian: "Descrizione", "Prezzo", "Quantità"
-   
-   Identify columns by their POSITION and CONTENT, not just their names.
+4. NO CONTINUATION INDICATORS
+   Keep reading if you see: "See next page", "Continued", "Additional options", "Available as option", page numbers continuing
 
-5. EXTRACT COMPLETE INFORMATION
-   For each item, capture:
-   - Position/Number (if present)
-   - Full description (including model numbers, specs, technical details)
-   - Unit price
-   - Quantity (if specified, otherwise assume 1)
-   - Total price (if calculated)
-   - Any special notes (included, optional, required, etc.)
+EXTRACTION PRINCIPLES:
 
-6. COMMON QUOTATION SECTIONS
-   Items can appear in these sections:
-   - Main equipment/products table (usually near the beginning)
-   - Optional items section (middle or end)
-   - Accessories list
-   - Service packages
-   - Warranties or support plans
-   - Shipping/packaging options
-   - Installation services
-   - Training or documentation
-   - Spare parts
+1. SCAN ENTIRE DOCUMENT - Read from beginning to END, check every page and section
 
-7. DO NOT SKIP
-   - Items at the very end of the document
-   - Items in separate tables on different pages
-   - Items with price "0" or "Included" (these are important!)
-   - Items in footnotes or appendices
-   - Items in smaller font or different formatting
+2. RECOGNIZE ALL PRICING STRUCTURES:
+   - Tables with Description + Price columns
+   - Lists with prices (bulleted, numbered)
+   - Text blocks with inline pricing
+   - Section-based items (Optional, Accessories, Add-ons, Packing)
+
+3. IDENTIFY PRICES IN ANY FORMAT:
+   €1,000 | $1,000.00 | £1.000,00 | 5000 (in price columns) | "Included" | "Free" | "TBD"
+
+4. MULTI-LANGUAGE SUPPORT:
+   English, Ukrainian, Spanish, German, French, Italian - recognize headers in any language
+
+5. EXTRACT COMPLETE INFO:
+   - Full description with model numbers
+   - Unit price with currency
+   - Quantity (default "1")
+   - Total price if shown
+   - Notes (optional, included, etc.)
+
+6. NEVER SKIP:
+   - Items at document end
+   - Items marked "Included" 
+   - Items in "optional" sections
+   - Items in multiple tables
+   - Small-font items
+
+SELF-VALIDATION BEFORE RETURNING:
+
+Q1: Did I read until end of document?
+Q2: Any pricing info after my last item? → Go back and extract
+Q3: Processed every section with prices?
+Q4: Extracted items marked "Included"?
+Q5: Checked accessories/add-ons/packing sections?
+Q6: Multiple tables? Extracted from all?
+Q7: Saw continuation indicators? → Keep extracting
+
+COMPLETION DETECTION - Finished when ALL true:
+✓ No more currency/price indicators after last item
+✓ No more section headers with pricing
+✓ Reached "Terms"/"Conditions"/"Payment"/"Delivery" sections
+✓ No tables with price columns remaining
 
 Document text:
 """ + text_to_process + """
 
-Return ONLY a JSON array with this exact structure:
-[{"item_name": "Full item description", "quantity": "1", "unit_price": "€1,000.00", "total_price": "€1,000.00", "details": "Model numbers and specs"}]
-
-VALIDATION CHECKLIST before responding:
-- ✓ Did I read the ENTIRE document?
-- ✓ Did I check ALL pages?
-- ✓ Did I look for items beyond the first table?
-- ✓ Did I include items marked "Included"?
-- ✓ Did I check sections labeled "optional" or "accessories"?
-- ✓ Is my item count reasonable for this document size?
+Return ONLY JSON array:
+[{"item_name": "Full description", "quantity": "1", "unit_price": "€1,000.00", "total_price": "€1,000.00", "details": "Model/specs"}]
 """
         
-        print("Calling OpenAI with UNIVERSAL PROMPT...")
+        print("Calling OpenAI...")
         
         response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
+            model="gpt-3.5-turbo-16k",
             messages=[
-                {"role": "system", "content": "You are an expert at extracting ALL pricing data from quotations. Return only valid JSON."},
+                {"role": "system", "content": "Extract ALL pricing data from quotations. Extract until document is complete, not until reaching a count. Validate your work by checking for remaining price indicators. Return only valid JSON."},
                 {"role": "user", "content": prompt}
             ],
             temperature=0,
-            max_tokens=2000,
-            request_timeout=60
+            max_tokens=4000,
+            request_timeout=120
         )
         
         print("Received response")
@@ -144,7 +117,11 @@ VALIDATION CHECKLIST before responding:
         
         items = json.loads(extracted_json)
         
-        print("Validated " + str(len(items)) + " items")
+        print(f"Extracted {len(items)} items")
+        
+        if len(items) == 0:
+            print("ERROR: No items extracted")
+            return False
         
         output_dir = os.path.dirname(output_path)
         if output_dir:
@@ -157,39 +134,37 @@ VALIDATION CHECKLIST before responding:
         
         if os.path.exists(output_path):
             file_size = os.path.getsize(output_path)
-            print("File created: " + str(file_size) + " bytes")
-            
+            print(f"File created: {file_size} bytes")
             if len(items) > 0:
-                first_item_name = items[0].get('item_name', 'N/A')[:60]
-                print("First item: " + first_item_name)
+                print(f"First item: {items[0].get('item_name', 'N/A')[:60]}")
+                print(f"Last item: {items[-1].get('item_name', 'N/A')[:60]}")
         else:
             print("ERROR: File not created")
             return False
         
-        print("Successfully extracted " + str(len(items)) + " items using UNIVERSAL PROMPT")
         return True
         
     except Exception as e:
-        print("ERROR: " + str(e))
+        print(f"ERROR: {str(e)}")
         import traceback
         traceback.print_exc()
         return False
 
 if __name__ == "__main__":
     print("=" * 60)
-    print("ITEM EXTRACTION - SV6 with UNIVERSAL PROMPTS")
+    print("ITEM EXTRACTION - SV6 COMPLETION-BASED")
     print("=" * 60)
     
     if len(sys.argv) != 3:
-        print("ERROR: Wrong arguments")
+        print(f"ERROR: Wrong arguments. Got {len(sys.argv)} arguments: {sys.argv}")
         print("Usage: python extract_items.py <input> <output>")
         sys.exit(1)
     
     input_text_path = sys.argv[1]
     output_json_path = sys.argv[2]
     
-    print("Input: " + input_text_path)
-    print("Output: " + output_json_path)
+    print(f"Input: {input_text_path}")
+    print(f"Output: {output_json_path}")
     
     if not os.path.exists(input_text_path):
         print("ERROR: Input file not found")
@@ -198,7 +173,7 @@ if __name__ == "__main__":
     with open(input_text_path, 'r', encoding='utf-8') as f:
         text = f.read()
     
-    print("Read " + str(len(text)) + " characters")
+    print(f"Read {len(text)} characters")
     
     success = extract_items_from_text(text, output_json_path)
     
