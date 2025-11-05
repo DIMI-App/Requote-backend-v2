@@ -2,9 +2,10 @@ import os
 import sys
 import json
 import openai
-from pdf2image import convert_from_path
+import fitz  # PyMuPDF
 import base64
 from io import BytesIO
+from PIL import Image
 
 openai.api_key = os.environ.get('OPENAI_API_KEY')
 
@@ -21,33 +22,40 @@ def extract_items_from_pdf(pdf_path, output_path):
         
         print("Reading PDF: " + pdf_path)
         
-        # Convert PDF to images
-        print("Converting PDF pages to images...")
-        images = convert_from_path(pdf_path, dpi=200)
-        print(f"Converted {len(images)} pages to images")
+        # Open PDF with PyMuPDF
+        doc = fitz.open(pdf_path)
+        print(f"PDF has {len(doc)} pages")
         
-        # Convert images to base64
+        # Convert pages to images
         image_data_list = []
-        for idx, img in enumerate(images):
-            buffered = BytesIO()
-            img.save(buffered, format="PNG")
-            img_base64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
+        for page_num in range(len(doc)):
+            page = doc[page_num]
+            
+            # Render page to image (72 DPI is fine for text/tables)
+            pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))  # 2x zoom = 144 DPI
+            
+            # Convert to PNG bytes
+            img_bytes = pix.tobytes("png")
+            img_base64 = base64.b64encode(img_bytes).decode('utf-8')
+            
             image_data_list.append(f"data:image/png;base64,{img_base64}")
-            print(f"  Page {idx + 1}: {len(img_base64)} bytes")
+            print(f"  Page {page_num + 1}: converted")
+        
+        doc.close()
         
         print("Calling OpenAI Vision...")
         
         # Build content with all pages
         content = [
-            {"type": "text", "text": """Extract EVERY item with a price or marked "included" from this quotation PDF.
+            {"type": "text", "text": """Extract EVERY item with a price or marked "included" from this quotation.
 
 RULES:
-1. Extract until you reach "Terms and Conditions" or end of document
-2. If you see €, $, £, "Included", "Optional" after your last item - keep extracting
+1. Extract until "Terms and Conditions" or document end
+2. If you see €, $, £, "Included", "Optional" after last item - keep extracting
 3. Check ALL sections: Main, Optional, Accessories, Packing, Add-ons
-4. Never skip items at document end or marked "Included"
+4. Never skip items at end or marked "Included"
 
-Return ONLY JSON array:
+Return ONLY JSON:
 [{"item_name": "description", "quantity": "1", "unit_price": "€1,000", "total_price": "€1,000", "details": "specs"}]"""}
         ]
         
