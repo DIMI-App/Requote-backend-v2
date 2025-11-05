@@ -60,8 +60,15 @@ def process_pdf_background(filepath):
         processing_status['status'] = 'processing'
         processing_status['message'] = 'Extracting items from PDF...'
         
+        print("=== BACKGROUND THREAD STARTED ===", flush=True)
+        
         items_output_path = os.path.join(OUTPUT_FOLDER, 'items_offer1.json')
         extract_script_path = os.path.join(BASE_DIR, 'extract_pdf_direct.py')
+        
+        print(f"Script path: {extract_script_path}", flush=True)
+        print(f"Script exists: {os.path.exists(extract_script_path)}", flush=True)
+        
+        print("Starting subprocess...", flush=True)
         
         result = subprocess.run(
             ['python', extract_script_path],
@@ -70,6 +77,10 @@ def process_pdf_background(filepath):
             cwd=BASE_DIR,
             timeout=300
         )
+        
+        print(f"Subprocess completed with code: {result.returncode}", flush=True)
+        print(f"STDOUT: {result.stdout}", flush=True)
+        print(f"STDERR: {result.stderr}", flush=True)
         
         if result.returncode != 0:
             processing_status['status'] = 'error'
@@ -91,7 +102,12 @@ def process_pdf_background(filepath):
         processing_status['items_count'] = len(items)
         processing_status['items'] = items
         
+        print("=== BACKGROUND THREAD COMPLETED ===", flush=True)
+        
     except Exception as e:
+        print(f"=== BACKGROUND THREAD ERROR: {str(e)} ===", flush=True)
+        import traceback
+        traceback.print_exc()
         processing_status['status'] = 'error'
         processing_status['message'] = str(e)
 
