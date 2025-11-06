@@ -6,3 +6,4 @@ werkzeug==3.0.1
 gunicorn==21.2.0
 PyMuPDF==1.23.8
 Pillow==10.1.0
+deepl==1.18.0
