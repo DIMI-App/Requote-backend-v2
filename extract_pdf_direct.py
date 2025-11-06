@@ -32,7 +32,8 @@ def extract_items_from_pdf(pdf_path, output_path):
         total_pages = len(doc)
         print(f"PDF has {total_pages} pages", flush=True)
         
-        max_pages = min(8, total_pages)
+        # Process ALL pages (up to 15 for typical quotes)
+        max_pages = min(15, total_pages)
         print(f"Processing first {max_pages} pages", flush=True)
         
         image_data_list = []
@@ -51,16 +52,39 @@ def extract_items_from_pdf(pdf_path, output_path):
         print("Building OpenAI request...", flush=True)
         
         content = [
-            {"type": "text", "text": """Extract EVERY item with a price or marked "included" from this quotation.
+            {"type": "text", "text": """Extract EVERY item with a price or marked "Included" from this quotation.
 
-RULES:
-1. Extract until "Terms and Conditions" or document end
-2. If you see €, $, £, "Included", "Optional" - keep extracting
-3. Check ALL sections: Main, Optional, Accessories, Packing
-4. Never skip items marked "Included"
+CRITICAL RULES:
+1. Extract from ALL PAGES - scan entire document
+2. Extract items from these sections:
+   - Main equipment/machinery
+   - Economic Offer table (main pricing table)
+   - General Accessories (optional)
+   - Accessories of the rinsing turret (optional)
+   - Accessories of the filling turret (optional)
+   - Equipments for corker (optional)
+   - Packing options
+3. For each item, capture:
+   - Category/section name (e.g., "General Accessories of the monoblock (optional)")
+   - Item description
+   - Quantity (default "1" if not shown)
+   - Unit price (number with currency symbol, or "Included")
+   - Total price (number with currency symbol, or "Included")
+4. Items marked "Included" or with price 0 should have "Included" as price
+5. Preserve thousand separators (e.g., 270.000 not 270000)
+6. Continue extracting until you see "Terms and Conditions" or end of document
 
-Return ONLY JSON:
-[{"item_name": "description", "quantity": "1", "unit_price": "€1,000", "total_price": "€1,000", "details": "specs"}]"""}
+Return ONLY JSON array:
+[{
+  "category": "Main Equipment",
+  "item_name": "Automatic monoblock...",
+  "quantity": "1",
+  "unit_price": "€270.000",
+  "total_price": "€270.000",
+  "details": "Model T24C28S4-VN6..."
+}]
+
+If price is 0 or marked "Included", use "Included" for both unit_price and total_price."""}
         ]
         
         for img_data in image_data_list:
@@ -71,7 +95,7 @@ Return ONLY JSON:
         response = openai.ChatCompletion.create(
             model="gpt-4o",
             messages=[{"role": "user", "content": content}],
-            max_tokens=4000,
+            max_tokens=6000,  # Increased for more items
             temperature=0
         )
         
@@ -93,10 +117,22 @@ Return ONLY JSON:
             print("ERROR: No items extracted", flush=True)
             return False
         
+        # Group items by category for easier processing
+        categories = {}
+        for item in items:
+            cat = item.get("category", "Main Items")
+            if cat not in categories:
+                categories[cat] = []
+            categories[cat].append(item)
+        
+        print(f"Found {len(categories)} categories:", flush=True)
+        for cat, cat_items in categories.items():
+            print(f"  - {cat}: {len(cat_items)} items", flush=True)
+        
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
         
         with open(output_path, 'w', encoding='utf-8') as f:
-            json.dump({"items": items}, f, indent=2, ensure_ascii=False)
+            json.dump({"items": items, "categories": list(categories.keys())}, f, indent=2, ensure_ascii=False)
         
         print(f"Saved to {output_path}", flush=True)
         print("=== EXTRACTION COMPLETED ===", flush=True)
