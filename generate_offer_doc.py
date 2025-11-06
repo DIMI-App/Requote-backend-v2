@@ -6,12 +6,163 @@ from docx.shared import Pt, RGBColor
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 from collections import Counter
+import openai
+
+openai.api_key = os.environ.get('OPENAI_API_KEY')
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 OFFER_2_PATH = os.path.join(BASE_DIR, "offer2_template.docx")
 ITEMS_PATH = os.path.join(BASE_DIR, "outputs", "items_offer1.json")
 OUTPUT_PATH = os.path.join(BASE_DIR, "outputs", "final_offer1.docx")
 
+def detect_template_language(doc):
+    """Detect the language of Offer 2 template"""
+    print("=" * 60, flush=True)
+    print("DETECTING TEMPLATE LANGUAGE", flush=True)
+    print("=" * 60, flush=True)
+    
+    # Extract text samples from template
+    text_samples = []
+    
+    # Get text from tables
+    for table in doc.tables:
+        for row in table.rows[:5]:  # First 5 rows
+            for cell in row.cells:
+                text = cell.text.strip()
+                if len(text) > 10:  # Meaningful text
+                    text_samples.append(text)
+    
+    # Get text from paragraphs
+    for para in doc.paragraphs[:10]:  # First 10 paragraphs
+        text = para.text.strip()
+        if len(text) > 10:
+            text_samples.append(text)
+    
+    if not text_samples:
+        print("⚠ No text found in template, defaulting to English", flush=True)
+        return "en"
+    
+    # Combine samples
+    combined_text = " ".join(text_samples[:10])  # First 10 samples
+    print(f"Text sample for detection: {combined_text[:200]}...", flush=True)
+    
+    # Use OpenAI to detect language
+    try:
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[{
+                "role": "user",
+                "content": f"""Detect the language of this text. Return ONLY the two-letter ISO 639-1 language code (e.g., 'en', 'uk', 'es', 'de', 'fr', 'it', 'ru', 'pl').
+
+Text: {combined_text[:500]}
+
+Language code:"""
+            }],
+            max_tokens=10,
+            temperature=0
+        )
+        
+        detected_lang = response.choices[0].message.content.strip().lower()
+        
+        # Validate
+        valid_codes = ['en', 'uk', 'es', 'de', 'fr', 'it', 'ru', 'pl', 'pt', 'nl', 'tr', 'ar', 'zh', 'ja', 'ko']
+        if detected_lang not in valid_codes:
+            detected_lang = 'en'
+        
+        lang_names = {
+            'en': 'English', 'uk': 'Ukrainian', 'es': 'Spanish', 'de': 'German',
+            'fr': 'French', 'it': 'Italian', 'ru': 'Russian', 'pl': 'Polish',
+            'pt': 'Portuguese', 'nl': 'Dutch', 'tr': 'Turkish', 'ar': 'Arabic',
+            'zh': 'Chinese', 'ja': 'Japanese', 'ko': 'Korean'
+        }
+        
+        print(f"✓ Detected language: {lang_names.get(detected_lang, detected_lang)} ({detected_lang})", flush=True)
+        print("=" * 60, flush=True)
+        
+        return detected_lang
+        
+    except Exception as e:
+        print(f"✗ Language detection error: {str(e)}", flush=True)
+        print("Defaulting to English", flush=True)
+        return "en"
+
+def translate_items(items, target_lang):
+    """Translate all items to target language"""
+    if target_lang == 'en':
+        print("Target language is English, no translation needed", flush=True)
+        return items
+    
+    print("=" * 60, flush=True)
+    print(f"TRANSLATING ITEMS TO {target_lang.upper()}", flush=True)
+    print("=" * 60, flush=True)
+    
+    try:
+        # Prepare items for translation
+        items_to_translate = []
+        for item in items:
+            items_to_translate.append({
+                'category': item.get('category', ''),
+                'item_name': item.get('item_name', ''),
+                'details': item.get('details', '')
+            })
+        
+        # Create translation request
+        translation_prompt = f"""Translate the following product quotation items to {target_lang.upper()}. 
+
+IMPORTANT RULES:
+1. Translate category names, item names, and details
+2. Keep technical terms and model numbers in ORIGINAL language (e.g., "CAN ISO 20/2 S", "VBS MINIDOSE")
+3. Keep measurements, numbers, and units in original format
+4. Preserve proper nouns, brand names, and technical specifications
+5. Return ONLY valid JSON array with same structure
+
+Input JSON:
+{json.dumps(items_to_translate, ensure_ascii=False, indent=2)}
+
+Output (translated JSON):"""
+        
+        print("Sending translation request to OpenAI...", flush=True)
+        
+        response = openai.ChatCompletion.create(
+            model="gpt-4o",
+            messages=[{
+                "role": "user",
+                "content": translation_prompt
+            }],
+            max_tokens=6000,
+            temperature=0.3
+        )
+        
+        translated_json = response.choices[0].message.content.strip()
+        
+        # Clean JSON
+        if translated_json.startswith("```json"):
+            translated_json = translated_json.replace("```json", "").replace("```", "").strip()
+        elif translated_json.startswith("```"):
+            translated_json = translated_json.replace("```", "").strip()
+        
+        translated_items = json.loads(translated_json)
+        
+        print(f"✓ Translated {len(translated_items)} items", flush=True)
+        
+        # Merge translated text back into original items (preserve prices/quantities)
+        for i, item in enumerate(items):
+            if i < len(translated_items):
+                item['category'] = translated_items[i].get('category', item['category'])
+                item['item_name'] = translated_items[i].get('item_name', item['item_name'])
+                item['details'] = translated_items[i].get('details', item['details'])
+        
+        print("=" * 60, flush=True)
+        return items
+        
+    except Exception as e:
+        print(f"✗ Translation error: {str(e)}", flush=True)
+        print("Continuing with original language", flush=True)
+        import traceback
+        traceback.print_exc()
+        return items
+
+# [Keep all the existing functions: get_cell_background_color, get_text_color, etc.]
 def get_cell_background_color(cell):
     """Extract background color from cell"""
     try:
@@ -72,45 +223,35 @@ def analyze_template_style(doc):
     fonts = []
     font_sizes = []
     
-    # Scan all tables
     for table in doc.tables:
         for row_idx, row in enumerate(table.rows):
             for cell in row.cells:
-                # Get background color
                 bg = get_cell_background_color(cell)
                 if bg:
                     bg_colors.append(bg)
                 
-                # Get text properties
                 for paragraph in cell.paragraphs:
                     for run in paragraph.runs:
-                        # Text color
                         color = get_text_color(run)
                         if color:
                             text_colors.append(color)
                         
-                        # Font
                         font = get_font_name(run)
                         if font:
                             fonts.append(font)
                         
-                        # Font size
                         size = get_font_size(run)
                         if size:
                             font_sizes.append(size)
     
-    # Determine most common values
     if bg_colors:
-        # Most common background = header color
         bg_counter = Counter(bg_colors)
         style_info['header_bg_color'] = bg_counter.most_common(1)[0][0]
         print(f"✓ Header background: #{style_info['header_bg_color']}", flush=True)
     
     if text_colors:
-        # Most common text color
         text_counter = Counter(text_colors)
         most_common = text_counter.most_common(2)
-        # Usually: black for body, white for headers
         for color, count in most_common:
             if color.upper() in ['FFFFFF', 'FFFFFFFF']:
                 style_info['header_text_color'] = color
@@ -120,17 +261,14 @@ def analyze_template_style(doc):
                 print(f"✓ Body text: #{color}", flush=True)
     
     if fonts:
-        # Most common font
         font_counter = Counter(fonts)
         style_info['primary_font'] = font_counter.most_common(1)[0][0]
         print(f"✓ Primary font: {style_info['primary_font']}", flush=True)
     
     if font_sizes:
-        # Get 2 most common sizes (likely header and body)
         size_counter = Counter(font_sizes)
         common_sizes = size_counter.most_common(2)
         if len(common_sizes) >= 2:
-            # Larger = header, smaller = body
             sizes_sorted = sorted([s[0] for s in common_sizes], reverse=True)
             style_info['header_font_size'] = sizes_sorted[0]
             style_info['body_font_size'] = sizes_sorted[1]
@@ -156,15 +294,12 @@ def apply_text_style(cell, text, is_header, style_info):
     
     for paragraph in cell.paragraphs:
         for run in paragraph.runs:
-            # Apply font
             if style_info['primary_font']:
                 run.font.name = style_info['primary_font']
             
-            # Apply size
             if is_header:
                 run.font.size = Pt(style_info['header_font_size'])
                 run.bold = True
-                # Apply header text color (white)
                 if style_info['header_text_color']:
                     color_hex = style_info['header_text_color'].replace('#', '')
                     if len(color_hex) == 6:
@@ -175,7 +310,6 @@ def apply_text_style(cell, text, is_header, style_info):
                         )
             else:
                 run.font.size = Pt(style_info['body_font_size'])
-                # Apply body text color (black)
                 if style_info['body_text_color']:
                     color_hex = style_info['body_text_color'].replace('#', '')
                     if len(color_hex) == 6:
@@ -253,6 +387,7 @@ def format_price(price_str, format_info):
     except:
         return price_str
 
+# MAIN EXECUTION
 print("=" * 60, flush=True)
 print("GENERATE OFFER - Starting", flush=True)
 print("=" * 60, flush=True)
@@ -287,7 +422,13 @@ if len(doc.tables) == 0:
     print("✗ No tables in template", flush=True)
     exit(1)
 
-# Analyze template style FIRST
+# Detect template language
+target_language = detect_template_language(doc)
+
+# Translate items to target language
+items = translate_items(items, target_language)
+
+# Analyze template style
 template_style = analyze_template_style(doc)
 
 # Find pricing table
@@ -310,7 +451,7 @@ print(f"✓ Selected table with {len(best_table.columns)} columns", flush=True)
 # Detect number format
 number_format = detect_number_format(best_table)
 
-# Clear existing data rows (keep header)
+# Clear existing data rows
 print(f"Clearing {len(best_table.rows) - 1} existing rows...", flush=True)
 while len(best_table.rows) > 1:
     best_table._tbl.remove(best_table.rows[1]._tr)
@@ -326,53 +467,43 @@ for item in items:
 
 print(f"✓ Grouped into {len(categorized_items)} categories", flush=True)
 
-# Insert items with category separators
+# Insert items
 item_counter = 1
 for category, cat_items in categorized_items.items():
     print(f"  Processing category: {category} ({len(cat_items)} items)", flush=True)
     
-    # Add category header row
     category_row = best_table.add_row().cells
     
-    # Clear all cells
     for cell in category_row:
         cell.text = ""
     
-    # Category name in description column only
     if len(category_row) >= 2:
         apply_text_style(category_row[1], category, True, template_style)
         
-        # Apply header background color
         if template_style['header_bg_color']:
             set_cell_background(category_row[1], template_style['header_bg_color'])
     
-    # Add items
     for item in cat_items:
         row = best_table.add_row().cells
         
         try:
-            # Position number
             if len(row) >= 1:
                 apply_text_style(row[0], f"{item_counter}.", False, template_style)
                 item_counter += 1
             
-            # Description
             if len(row) >= 2:
                 desc = item.get("item_name", "")
                 if item.get("details"):
                     desc = f"{desc}\n{item.get('details')}"
                 apply_text_style(row[1], desc, False, template_style)
             
-            # Unit Price
             if len(row) >= 3:
                 price = format_price(item.get("unit_price", ""), number_format)
                 apply_text_style(row[2], price, False, template_style)
             
-            # Quantity
             if len(row) >= 4:
                 apply_text_style(row[3], str(item.get("quantity", "1")), False, template_style)
             
-            # Total Price
             if len(row) >= 5:
                 total = format_price(item.get("total_price", ""), number_format)
                 apply_text_style(row[4], total, False, template_style)
