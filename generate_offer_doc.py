@@ -96,44 +96,72 @@ def translate_items(items, target_lang):
     print(f"TRANSLATING ITEMS TO {target_lang.upper()}", flush=True)
     print("=" * 60, flush=True)
     
+    # Map language codes to full names
+    lang_map = {
+        'uk': 'Ukrainian (Українська)',
+        'es': 'Spanish (Español)',
+        'de': 'German (Deutsch)',
+        'fr': 'French (Français)',
+        'it': 'Italian (Italiano)',
+        'ru': 'Russian (Русский)',
+        'pl': 'Polish (Polski)',
+        'pt': 'Portuguese (Português)',
+        'nl': 'Dutch (Nederlands)',
+        'tr': 'Turkish (Türkçe)',
+        'ar': 'Arabic (العربية)',
+        'zh': 'Chinese (中文)',
+        'ja': 'Japanese (日本語)',
+        'ko': 'Korean (한국어)'
+    }
+    
+    target_language_name = lang_map.get(target_lang, target_lang)
+    
     try:
-        # Prepare items for translation
-        items_to_translate = []
-        for item in items:
-            items_to_translate.append({
-                'category': item.get('category', ''),
-                'item_name': item.get('item_name', ''),
-                'details': item.get('details', '')
-            })
+        # Prepare batch translation - categories and items
+        categories = list(set([item.get('category', '') for item in items]))
+        print(f"Categories to translate: {categories}", flush=True)
         
-        # Create translation request
-        translation_prompt = f"""Translate the following product quotation items to {target_lang.upper()}. 
+        # Create a more explicit translation request
+        translation_prompt = f"""You are a professional technical translator. Translate the following quotation items from English to {target_language_name}.
 
-IMPORTANT RULES:
-1. Translate category names, item names, and details
-2. Keep technical terms and model numbers in ORIGINAL language (e.g., "CAN ISO 20/2 S", "VBS MINIDOSE")
-3. Keep measurements, numbers, and units in original format
-4. Preserve proper nouns, brand names, and technical specifications
-5. Return ONLY valid JSON array with same structure
+CRITICAL TRANSLATION RULES:
+1. Translate ALL category names (e.g., "Main Equipment", "Accessories", "Format Changes")
+2. Translate ALL item descriptions and details
+3. KEEP technical terms unchanged: model numbers, part codes, technical specs
+4. KEEP proper nouns: brand names, product codes (e.g., "CAN ISO 20/2 S", "VBS MINIDOSE", "C.I.P.")
+5. KEEP measurements and units: mm, kg, L, etc.
+6. Return valid JSON with exact same structure
 
-Input JSON:
-{json.dumps(items_to_translate, ensure_ascii=False, indent=2)}
+INPUT JSON (to translate):
+{json.dumps(items, ensure_ascii=False, indent=2)}
 
-Output (translated JSON):"""
+OUTPUT (translated to {target_language_name}):"""
         
-        print("Sending translation request to OpenAI...", flush=True)
+        print(f"Translation request size: {len(translation_prompt)} chars", flush=True)
+        print("Calling OpenAI for translation...", flush=True)
         
         response = openai.ChatCompletion.create(
             model="gpt-4o",
-            messages=[{
-                "role": "user",
-                "content": translation_prompt
-            }],
-            max_tokens=6000,
-            temperature=0.3
+            messages=[
+                {
+                    "role": "system",
+                    "content": f"You are a professional technical translator specializing in industrial equipment quotations. Translate to {target_language_name} while preserving technical terms and product codes."
+                },
+                {
+                    "role": "user",
+                    "content": translation_prompt
+                }
+            ],
+            max_tokens=8000,
+            temperature=0.1
         )
         
+        print("✓ Received response from OpenAI", flush=True)
+        
         translated_json = response.choices[0].message.content.strip()
+        
+        # Debug: show first 500 chars of response
+        print(f"Response preview: {translated_json[:500]}...", flush=True)
         
         # Clean JSON
         if translated_json.startswith("```json"):
@@ -141,25 +169,125 @@ Output (translated JSON):"""
         elif translated_json.startswith("```"):
             translated_json = translated_json.replace("```", "").strip()
         
+        # Parse
         translated_items = json.loads(translated_json)
         
-        print(f"✓ Translated {len(translated_items)} items", flush=True)
+        print(f"✓ Parsed {len(translated_items)} translated items", flush=True)
         
-        # Merge translated text back into original items (preserve prices/quantities)
-        for i, item in enumerate(items):
-            if i < len(translated_items):
-                item['category'] = translated_items[i].get('category', item['category'])
-                item['item_name'] = translated_items[i].get('item_name', item['item_name'])
-                item['details'] = translated_items[i].get('details', item['details'])
+        # Verify translation worked - check if categories changed
+        translated_categories = list(set([item.get('category', '') for item in translated_items]))
+        print(f"Translated categories: {translated_categories}", flush=True)
+        
+        # Check if actually translated (categories should be different)
+        if translated_categories == categories:
+            print("⚠ WARNING: Categories appear unchanged - translation may have failed", flush=True)
+            # Try simpler approach - translate just categories first
+            return translate_items_simple(items, target_lang, target_language_name)
+        
+        # Verify item count matches
+        if len(translated_items) != len(items):
+            print(f"⚠ WARNING: Item count mismatch: {len(items)} → {len(translated_items)}", flush=True)
+            print("Using original items", flush=True)
+            return items
+        
+        # Show sample translation
+        if len(translated_items) > 0:
+            orig_cat = items[0].get('category', '')
+            trans_cat = translated_items[0].get('category', '')
+            orig_name = items[0].get('item_name', '')[:50]
+            trans_name = translated_items[0].get('item_name', '')[:50]
+            
+            print("Sample translation:", flush=True)
+            print(f"  Category: '{orig_cat}' → '{trans_cat}'", flush=True)
+            print(f"  Item: '{orig_name}...' → '{trans_name}...'", flush=True)
         
         print("=" * 60, flush=True)
-        return items
+        return translated_items
         
+    except json.JSONDecodeError as e:
+        print(f"✗ JSON parsing error: {str(e)}", flush=True)
+        print(f"Raw response: {translated_json[:1000]}", flush=True)
+        print("Continuing with original language", flush=True)
+        return items
     except Exception as e:
         print(f"✗ Translation error: {str(e)}", flush=True)
-        print("Continuing with original language", flush=True)
         import traceback
         traceback.print_exc()
+        print("Continuing with original language", flush=True)
+        return items
+
+def translate_items_simple(items, target_lang, target_language_name):
+    """Simpler translation approach - translate categories separately then items"""
+    print("Attempting simpler translation method...", flush=True)
+    
+    try:
+        # Step 1: Get unique categories
+        categories = list(set([item.get('category', '') for item in items]))
+        
+        # Step 2: Translate categories only
+        cat_prompt = f"""Translate these category names from English to {target_language_name}:
+
+{json.dumps(categories, ensure_ascii=False)}
+
+Return ONLY a JSON array of translated category names in the same order."""
+        
+        cat_response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": cat_prompt}],
+            max_tokens=500,
+            temperature=0
+        )
+        
+        cat_json = cat_response.choices[0].message.content.strip()
+        if cat_json.startswith("```"):
+            cat_json = cat_json.replace("```json", "").replace("```", "").strip()
+        
+        translated_categories = json.loads(cat_json)
+        
+        # Create category mapping
+        cat_mapping = dict(zip(categories, translated_categories))
+        print(f"Category mapping: {cat_mapping}", flush=True)
+        
+        # Step 3: Translate items in batches
+        batch_size = 5
+        translated_items = []
+        
+        for i in range(0, len(items), batch_size):
+            batch = items[i:i+batch_size]
+            
+            batch_prompt = f"""Translate these product items to {target_language_name}. Keep technical terms unchanged.
+
+{json.dumps(batch, ensure_ascii=False, indent=2)}
+
+Return translated JSON:"""
+            
+            batch_response = openai.ChatCompletion.create(
+                model="gpt-4o",
+                messages=[{"role": "user", "content": batch_prompt}],
+                max_tokens=3000,
+                temperature=0.1
+            )
+            
+            batch_json = batch_response.choices[0].message.content.strip()
+            if batch_json.startswith("```"):
+                batch_json = batch_json.replace("```json", "").replace("```", "").strip()
+            
+            batch_translated = json.loads(batch_json)
+            translated_items.extend(batch_translated)
+            
+            print(f"  Translated batch {i//batch_size + 1}/{(len(items)-1)//batch_size + 1}", flush=True)
+        
+        # Apply category mapping
+        for item in translated_items:
+            orig_cat = item.get('category', '')
+            if orig_cat in cat_mapping:
+                item['category'] = cat_mapping[orig_cat]
+        
+        print(f"✓ Simple translation completed: {len(translated_items)} items", flush=True)
+        return translated_items
+        
+    except Exception as e:
+        print(f"✗ Simple translation also failed: {str(e)}", flush=True)
         return items
 
 # [Keep all the existing functions: get_cell_background_color, get_text_color, etc.]
