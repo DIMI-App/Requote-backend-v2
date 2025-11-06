@@ -59,32 +59,48 @@ CRITICAL RULES:
 2. Extract items from these sections:
    - Main equipment/machinery
    - Economic Offer table (main pricing table)
-   - General Accessories (optional)
-   - Accessories of the rinsing turret (optional)
-   - Accessories of the filling turret (optional)
-   - Equipments for corker (optional)
+   - Format Changes
+   - Accessories sections
+   - Further Options
    - Packing options
 3. For each item, capture:
-   - Category/section name (e.g., "General Accessories of the monoblock (optional)")
-   - Item description
+   - Category/section name (e.g., "FORMAT CHANGES", "ACCESSORIES", "CAN FILLER SANITATION")
+   - Item description (full text)
    - Quantity (default "1" if not shown)
-   - Unit price (number with currency symbol, or "Included")
-   - Total price (number with currency symbol, or "Included")
-4. Items marked "Included" or with price 0 should have "Included" as price
-5. Preserve thousand separators (e.g., 270.000 not 270000)
-6. Continue extracting until you see "Terms and Conditions" or end of document
+   - Unit price - Use ONE of these THREE states:
+     * Numeric price: "€324.400,00" or "15.400,00" (keep exact format with dots/commas)
+     * Included: "Included" (when text says "Included" or price is 0)
+     * To be quoted: "On request" (when text says "Can be offered", "To be quoted", "Please inquire", "On request", or similar)
+   - Total price (same format as unit price)
+4. NEVER mark "Can be offered" or "To be quoted" items as "Included" - use "On request" instead
+5. Preserve thousand separators exactly as shown (€324.400,00 or €15.400,00)
+6. Continue extracting until you see "GENERAL SALE TERMS" or end of document
 
 Return ONLY JSON array:
 [{
   "category": "Main Equipment",
-  "item_name": "Automatic monoblock...",
+  "item_name": "CAN ISO 20/2 S - clock wisely running direction",
   "quantity": "1",
-  "unit_price": "€270.000",
-  "total_price": "€270.000",
-  "details": "Model T24C28S4-VN6..."
+  "unit_price": "€324.400,00",
+  "total_price": "€324.400,00",
+  "details": "Based on one size of 0,33L standard aluminium can including Rolls kit 1st and 2nd operation + chuck in stainless steel"
+},
+{
+  "category": "ACCESSORIES",
+  "item_name": "FEEDING PUMP",
+  "quantity": "1",
+  "unit_price": "On request",
+  "total_price": "On request",
+  "details": "Can be offered according with the product to be filled"
 }]
 
-If price is 0 or marked "Included", use "Included" for both unit_price and total_price."""}
+PRICE STATE EXAMPLES:
+- "€324.400,00" → unit_price: "€324.400,00"
+- "Included" → unit_price: "Included"
+- "Can be offered according..." → unit_price: "On request"
+- "To be quoted" → unit_price: "On request"
+- "Please inquire" → unit_price: "On request"
+"""}
         ]
         
         for img_data in image_data_list:
@@ -95,7 +111,7 @@ If price is 0 or marked "Included", use "Included" for both unit_price and total
         response = openai.ChatCompletion.create(
             model="gpt-4o",
             messages=[{"role": "user", "content": content}],
-            max_tokens=6000,  # Increased for more items
+            max_tokens=6000,
             temperature=0
         )
         
@@ -117,7 +133,7 @@ If price is 0 or marked "Included", use "Included" for both unit_price and total
             print("ERROR: No items extracted", flush=True)
             return False
         
-        # Group items by category for easier processing
+        # Group items by category
         categories = {}
         for item in items:
             cat = item.get("category", "Main Items")
