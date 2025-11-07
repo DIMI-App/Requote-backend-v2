@@ -90,7 +90,8 @@ def analyze_document_context(items):
 
 1. Industry/Domain (e.g., "Food & Beverage Processing", "Pharmaceutical Equipment")
 2. Main Product Category (e.g., "Bottling Line", "Packaging Machinery")
-3. Technical Terms Glossary - List 10-15 key technical terms that should NOT be translated
+3. Technical Terms Glossary - List 15-20 key technical terms that should NOT be translated
+   Include: model numbers, technical terms, brand names, English industry terms
    Format as JSON array: ["term1", "term2", ...]
 
 Quotation sample:
@@ -103,7 +104,7 @@ Return ONLY JSON:
   "technical_glossary": [...]
 }}"""
             }],
-            max_tokens=500,
+            max_tokens=600,
             temperature=0
         )
         
@@ -116,6 +117,8 @@ Return ONLY JSON:
         print(f"✓ Industry: {context.get('industry', 'Unknown')}", flush=True)
         print(f"✓ Product: {context.get('product_category', 'Unknown')}", flush=True)
         print(f"✓ Glossary: {len(context.get('technical_glossary', []))} terms", flush=True)
+        if context.get('technical_glossary'):
+            print(f"  Terms: {', '.join(context['technical_glossary'][:5])}...", flush=True)
         print("=" * 60, flush=True)
         
         return context
@@ -144,7 +147,7 @@ def translate_items_with_context(items, target_lang, context):
         'DE': 'German (Deutsch)',
         'FR': 'French (Français)',
         'IT': 'Italian (Italiano)',
-        'RU': 'Russian (Русський)',
+        'RU': 'Russian (Русский)',
         'PL': 'Polish (Polski)',
         'PT': 'Portuguese (Português)'
     }
@@ -167,13 +170,15 @@ DOCUMENT CONTEXT:
 MANDATORY TRANSLATION RULES:
 
 1. TECHNICAL TERMS - NEVER TRANSLATE:
-   - Model numbers (e.g., "CAN ISO 20/2 S", "VBS MINIDOSE", "TECNA MC24")
-   - Technical specifications (e.g., "0,33L", "ø15mm", "AISI 304")
+   - Model numbers (e.g., "CAN ISO 20/2 S", "VBS MINIDOSE", "TECNA MC24", "RM28")
+   - Technical specifications (e.g., "0,33L", "ø15mm", "AISI 304", "AISI 316")
    - Brand names and product codes
-   - English technical terms commonly used in industry (e.g., "dummy", "C.I.P.", "kit")
-   - Measurement units (mm, kg, L, bph, etc.)
+   - English technical terms commonly used in industry (e.g., "dummy", "C.I.P.", "kit", "rolls")
+   - Measurement units (mm, kg, L, bph, cph, etc.)
+   - Acronyms (e.g., "CAN", "LID", "CO₂")
    
-   DO NOT TRANSLATE: {glossary_text}
+   PRESERVE UNTRANSLATED:
+   - {glossary_text}
 
 2. CATEGORY NAMES - Use Professional B2B Terminology:
    Examples for Ukrainian:
@@ -181,39 +186,53 @@ MANDATORY TRANSLATION RULES:
    - "Format Changes" → "Комплекти для зміни формату" (NOT "Зміна формату")
    - "Accessories" → "Додаткове обладнання" (NOT "Аксесуари")
    - "Further Options" → "Додаткові опції" (NOT "Подальші варіанти")
-   - "Packing" → "Упаковка для транспортування"
+   - "Packing" → "Упаковка для транспортування" (NOT just "Упаковка")
+   - "CAN FILLER SANITATION" → "Санітарна обробка наповнювача банок"
+   
+   Examples for Spanish:
+   - "Main Equipment" → "Equipo principal"
+   - "Format Changes" → "Cambios de formato"
+   - "Accessories" → "Equipamiento adicional"
 
 3. ITEM DESCRIPTIONS:
-   - Keep technical specifications in English within Ukrainian text
-   - Preserve parenthetical technical details
+   - Keep technical specifications in English within translated text
+   - Preserve parenthetical technical details exactly
    - Maintain formal business register
    - Use industry-standard terminology
+   - Keep model numbers, part names in original language
 
 4. SPECIAL TERMS:
-   - "On request" → "На запит" (Ukrainian) / "Bajo pedido" (Spanish)
+   - "On request" → "На запит" (Ukrainian) / "Bajo petición" (Spanish)
    - "Included" → "Включено" (Ukrainian) / "Incluido" (Spanish)
+   - "dummy" → keep as "dummy" (technical term)
+   - "kit" → keep as "kit" (industry standard)
+   - "rolls" → keep as "rolls" (technical component)
 
 5. QUALITY STANDARDS:
    - Professional, formal business language
    - Consistent terminology throughout entire document
    - Natural phrasing for native B2B readers
    - Technical accuracy over literal translation
+   - Preserve all numbers, measurements, and units exactly
 
 EXAMPLES OF CORRECT TRANSLATION TO UKRAINIAN:
 
 Input: "Main Equipment"
 Output: "Основне технологічне обладнання"
 
-Input: "CAN FILLER SANITATION\\nSeries of manual closed dummy CANS + washing cam."
-Output: "САНІТАРНА ОБРОБКА НАПОВНЮВАЧА БАНОК\\nСерія ручних закритих dummy CANS + промивальний кулачок."
+Input: "CAN FILLER SANITATION\\nSeries of manual closed dummy CANS + washing cam. The cleansing liquid flows throughout the gas evacuation pipes."
+Output: "Санітарна обробка наповнювача банок\\nСерія ручних закритих dummy CANS + промивальний кулачок. Рідина для очищення протікає через gas evacuation pipes."
 
 Input: "Equipment for another diameter of can (screw, stars and guides) with SAME LID"
-Output: "Обладнання для іншого діаметра банки (гвинт, зірочки та напрямні) з ТИМ САМИМ кришкою"
+Output: "Обладнання для іншого діаметра банки (screw, stars and guides) з ТАКОЮ Ж КРИШКОЮ"
 
 Input: "Touch-screen panel, colour, multifunction"
 Output: "Сенсорна панель, кольорова, багатофункціональна"
 
-CRITICAL: Maintain exact JSON structure in your response."""
+Input: "Set of CO₂ regulators in stainless steel, sanitizable, Teflon tube covered in inox, pipes"
+Output: "Набір регуляторів CO₂ з нержавіючої сталі, санітарний, тефлонова трубка в покритті з нержавіючої сталі, труби"
+
+CRITICAL: Maintain exact JSON structure in your response. Translate category, item_name, and details fields only. Keep all other fields unchanged."""
 
     try:
         translated_items = []
@@ -228,7 +247,11 @@ CRITICAL: Maintain exact JSON structure in your response."""
 
 REMINDER: This is a {context.get('product_category', 'industrial machinery')} quotation for {context.get('industry', 'professional use')}.
 
-Apply all translation rules from your system instructions. Preserve technical terms, use professional B2B terminology, maintain formal register.
+Apply all translation rules from your system instructions:
+- Preserve technical terms, model numbers, and specifications
+- Use professional B2B terminology for categories
+- Keep English technical terms that are industry standard
+- Maintain formal register throughout
 
 Input JSON:
 {json.dumps(batch, ensure_ascii=False, indent=2)}
@@ -252,16 +275,16 @@ Output (translated JSON with same structure):"""
             batch_translated = json.loads(batch_json)
             translated_items.extend(batch_translated)
             
-            print(f"    ✓ Batch completed", flush=True)
+            print(f"    ✓ Batch {i//batch_size + 1} completed", flush=True)
         
         if len(translated_items) > 0:
             sample_orig = items[0]
             sample_trans = translated_items[0]
             print("\n📊 Translation Sample:", flush=True)
             print(f"  Original category: '{sample_orig.get('category', '')}'", flush=True)
-            print(f"  Translated: '{sample_trans.get('category', '')}'", flush=True)
+            print(f"  Translated category: '{sample_trans.get('category', '')}'", flush=True)
             print(f"  Original item: '{sample_orig.get('item_name', '')[:70]}'", flush=True)
-            print(f"  Translated: '{sample_trans.get('item_name', '')[:70]}'", flush=True)
+            print(f"  Translated item: '{sample_trans.get('item_name', '')[:70]}'", flush=True)
         
         print(f"✅ ENHANCED TRANSLATION COMPLETED: {len(translated_items)} items", flush=True)
         print("=" * 60, flush=True)
@@ -482,9 +505,9 @@ def format_price(price_str, format_info):
     
     price_lower = str(price_str).lower().strip()
     
-    if 'included' in price_lower:
+    if 'included' in price_lower or 'включено' in price_lower or 'incluido' in price_lower:
         return "Included"
-    if any(x in price_lower for x in ['on request', 'to be quoted', 'can be offered', 'please inquire']):
+    if any(x in price_lower for x in ['on request', 'to be quoted', 'can be offered', 'please inquire', 'на запит', 'за запитом']):
         return "On request"
     
     numeric = re.sub(r'[^\d.,]', '', str(price_str))
@@ -509,7 +532,7 @@ def format_price(price_str, format_info):
 
 # MAIN EXECUTION
 print("=" * 60, flush=True)
-print("GENERATE OFFER - SV13 Context-Aware Translation", flush=True)
+print("GENERATE OFFER - SV13.1 Enhanced Context Translation", flush=True)
 print("=" * 60, flush=True)
 
 # Load items
@@ -545,7 +568,7 @@ if len(doc.tables) == 0:
 # Detect template language
 target_language = detect_template_language(doc)
 
-# Translate items with context analysis
+# Translate items with enhanced context analysis
 items = translate_items(items, target_language)
 
 # Analyze template style
