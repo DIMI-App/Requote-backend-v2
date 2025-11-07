@@ -129,13 +129,13 @@ Return ONLY JSON:
         }
 
 def translate_items_with_context(items, target_lang, context):
-    """Translate items using GPT-4o with full context awareness"""
+    """Translate items using GPT-4o with full context awareness and examples"""
     if target_lang == 'EN' or target_lang == 'EN-US':
         print("Target language is English, no translation needed", flush=True)
         return items
     
     print("=" * 60, flush=True)
-    print(f"TRANSLATING TO {target_lang} WITH CONTEXT", flush=True)
+    print(f"TRANSLATING TO {target_lang} WITH ENHANCED CONTEXT", flush=True)
     print("=" * 60, flush=True)
     
     lang_map = {
@@ -144,41 +144,80 @@ def translate_items_with_context(items, target_lang, context):
         'DE': 'German (Deutsch)',
         'FR': 'French (Français)',
         'IT': 'Italian (Italiano)',
-        'RU': 'Russian (Русский)',
+        'RU': 'Russian (Русський)',
         'PL': 'Polish (Polski)',
         'PT': 'Portuguese (Português)'
     }
     
     target_language_name = lang_map.get(target_lang, target_lang)
     
-    glossary_text = ", ".join(context.get('technical_glossary', [])[:15])
+    glossary_items = context.get('technical_glossary', [])[:20]
+    glossary_text = "\n- ".join(glossary_items) if glossary_items else "None specified"
     
-    system_prompt = f"""You are a professional technical translator specializing in {context.get('industry', 'industrial equipment')} quotations.
+    # Enhanced system prompt with examples
+    system_prompt = f"""You are an expert technical translator specializing in industrial equipment quotations for the {context.get('industry', 'manufacturing')} industry.
 
-CONTEXT:
-- Document type: Technical B2B Quotation
+DOCUMENT CONTEXT:
+- Type: Official B2B Technical Quotation
 - Industry: {context.get('industry', 'Industrial Equipment')}
-- Main product: {context.get('product_category', 'Machinery')}
-- Target language: {target_language_name}
+- Product: {context.get('product_category', 'Machinery')}
+- Target Language: {target_language_name}
+- Audience: Professional procurement managers and engineers
 
-CRITICAL TRANSLATION RULES:
-1. Preserve ALL technical terms, model numbers, and specifications
-2. Keep these terms UNTRANSLATED: {glossary_text}
-3. Translate category names professionally (e.g., "Main Equipment" → appropriate B2B term)
-4. Translate item descriptions while keeping technical specs unchanged
-5. Use formal B2B language appropriate for industrial quotations
-6. Preserve measurements, units, and numbers exactly
-7. Keep brand names, product codes, and model numbers in original language
+MANDATORY TRANSLATION RULES:
 
-TRANSLATION STYLE:
-- Professional, formal business language
-- Consistent terminology throughout
-- Natural phrasing for native speakers
-- Preserve document structure and formatting"""
+1. TECHNICAL TERMS - NEVER TRANSLATE:
+   - Model numbers (e.g., "CAN ISO 20/2 S", "VBS MINIDOSE", "TECNA MC24")
+   - Technical specifications (e.g., "0,33L", "ø15mm", "AISI 304")
+   - Brand names and product codes
+   - English technical terms commonly used in industry (e.g., "dummy", "C.I.P.", "kit")
+   - Measurement units (mm, kg, L, bph, etc.)
+   
+   DO NOT TRANSLATE: {glossary_text}
+
+2. CATEGORY NAMES - Use Professional B2B Terminology:
+   Examples for Ukrainian:
+   - "Main Equipment" → "Основне технологічне обладнання" (NOT "Основне обладнання")
+   - "Format Changes" → "Комплекти для зміни формату" (NOT "Зміна формату")
+   - "Accessories" → "Додаткове обладнання" (NOT "Аксесуари")
+   - "Further Options" → "Додаткові опції" (NOT "Подальші варіанти")
+   - "Packing" → "Упаковка для транспортування"
+
+3. ITEM DESCRIPTIONS:
+   - Keep technical specifications in English within Ukrainian text
+   - Preserve parenthetical technical details
+   - Maintain formal business register
+   - Use industry-standard terminology
+
+4. SPECIAL TERMS:
+   - "On request" → "На запит" (Ukrainian) / "Bajo pedido" (Spanish)
+   - "Included" → "Включено" (Ukrainian) / "Incluido" (Spanish)
+
+5. QUALITY STANDARDS:
+   - Professional, formal business language
+   - Consistent terminology throughout entire document
+   - Natural phrasing for native B2B readers
+   - Technical accuracy over literal translation
+
+EXAMPLES OF CORRECT TRANSLATION TO UKRAINIAN:
+
+Input: "Main Equipment"
+Output: "Основне технологічне обладнання"
+
+Input: "CAN FILLER SANITATION\\nSeries of manual closed dummy CANS + washing cam."
+Output: "САНІТАРНА ОБРОБКА НАПОВНЮВАЧА БАНОК\\nСерія ручних закритих dummy CANS + промивальний кулачок."
+
+Input: "Equipment for another diameter of can (screw, stars and guides) with SAME LID"
+Output: "Обладнання для іншого діаметра банки (гвинт, зірочки та напрямні) з ТИМ САМИМ кришкою"
+
+Input: "Touch-screen panel, colour, multifunction"
+Output: "Сенсорна панель, кольорова, багатофункціональна"
+
+CRITICAL: Maintain exact JSON structure in your response."""
 
     try:
         translated_items = []
-        batch_size = 8
+        batch_size = 6  # Smaller batches for better quality
         
         for i in range(0, len(items), batch_size):
             batch = items[i:i+batch_size]
@@ -187,12 +226,14 @@ TRANSLATION STYLE:
             
             user_prompt = f"""Translate these {len(batch)} quotation items to {target_language_name}.
 
-Context reminder: This is a {context.get('product_category', 'machinery')} quotation for {context.get('industry', 'industrial equipment')}.
+REMINDER: This is a {context.get('product_category', 'industrial machinery')} quotation for {context.get('industry', 'professional use')}.
 
-Items to translate:
+Apply all translation rules from your system instructions. Preserve technical terms, use professional B2B terminology, maintain formal register.
+
+Input JSON:
 {json.dumps(batch, ensure_ascii=False, indent=2)}
 
-Return ONLY the translated JSON array with same structure:"""
+Output (translated JSON with same structure):"""
             
             response = openai.ChatCompletion.create(
                 model="gpt-4o",
@@ -200,8 +241,8 @@ Return ONLY the translated JSON array with same structure:"""
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                max_tokens=4000,
-                temperature=0.2
+                max_tokens=4500,
+                temperature=0.15  # Lower for more consistent terminology
             )
             
             batch_json = response.choices[0].message.content.strip()
@@ -217,10 +258,12 @@ Return ONLY the translated JSON array with same structure:"""
             sample_orig = items[0]
             sample_trans = translated_items[0]
             print("\n📊 Translation Sample:", flush=True)
-            print(f"  Original: '{sample_orig.get('item_name', '')[:60]}'", flush=True)
-            print(f"  Translated: '{sample_trans.get('item_name', '')[:60]}'", flush=True)
+            print(f"  Original category: '{sample_orig.get('category', '')}'", flush=True)
+            print(f"  Translated: '{sample_trans.get('category', '')}'", flush=True)
+            print(f"  Original item: '{sample_orig.get('item_name', '')[:70]}'", flush=True)
+            print(f"  Translated: '{sample_trans.get('item_name', '')[:70]}'", flush=True)
         
-        print(f"✅ CONTEXT-AWARE TRANSLATION COMPLETED: {len(translated_items)} items", flush=True)
+        print(f"✅ ENHANCED TRANSLATION COMPLETED: {len(translated_items)} items", flush=True)
         print("=" * 60, flush=True)
         
         return translated_items
