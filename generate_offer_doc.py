@@ -5,12 +5,10 @@ from docx import Document
 from docx.shared import Pt, RGBColor
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
-from collections import Counter
+from collections import Counter, OrderedDict
 import openai
-import deepl
 
 openai.api_key = os.environ.get('OPENAI_API_KEY')
-deepl_key = os.environ.get('DEEPL_API_KEY')
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 OFFER_2_PATH = os.path.join(BASE_DIR, "offer2_template.docx")
@@ -23,10 +21,8 @@ def detect_template_language(doc):
     print("DETECTING TEMPLATE LANGUAGE", flush=True)
     print("=" * 60, flush=True)
     
-    # Extract text samples from template
     text_samples = []
     
-    # Get text from tables
     for table in doc.tables:
         for row in table.rows[:5]:
             for cell in row.cells:
@@ -34,7 +30,6 @@ def detect_template_language(doc):
                 if len(text) > 10:
                     text_samples.append(text)
     
-    # Get text from paragraphs
     for para in doc.paragraphs[:10]:
         text = para.text.strip()
         if len(text) > 10:
@@ -44,33 +39,9 @@ def detect_template_language(doc):
         print("⚠ No text found in template, defaulting to English", flush=True)
         return "EN"
     
-    # Combine samples
     combined_text = " ".join(text_samples[:5])[:500]
     print(f"Text sample: {combined_text[:150]}...", flush=True)
     
-    # Use DeepL to detect language
-    try:
-        if not deepl_key:
-            print("⚠ No DeepL API key, using OpenAI for detection", flush=True)
-            return detect_language_openai(combined_text)
-        
-        translator = deepl.Translator(deepl_key)
-        result = translator.translate_text(combined_text, target_lang="EN-US")
-        
-        detected_lang = result.detected_source_lang
-        
-        print(f"✓ Detected language: {detected_lang}", flush=True)
-        print("=" * 60, flush=True)
-        
-        return detected_lang
-        
-    except Exception as e:
-        print(f"✗ DeepL detection error: {str(e)}", flush=True)
-        print("Falling back to OpenAI detection", flush=True)
-        return detect_language_openai(combined_text)
-
-def detect_language_openai(text):
-    """Fallback language detection using OpenAI"""
     try:
         response = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
@@ -78,7 +49,7 @@ def detect_language_openai(text):
                 "role": "user",
                 "content": f"""Detect the language of this text. Return ONLY the two-letter ISO 639-1 code in UPPERCASE (e.g., 'EN', 'UK', 'ES', 'DE').
 
-Text: {text}
+Text: {combined_text}
 
 Language code:"""
             }],
@@ -87,217 +58,188 @@ Language code:"""
         )
         
         detected_lang = response.choices[0].message.content.strip().upper()
+        print(f"✓ Detected language: {detected_lang}", flush=True)
+        print("=" * 60, flush=True)
+        
         return detected_lang if len(detected_lang) == 2 else "EN"
         
     except Exception as e:
-        print(f"✗ OpenAI detection error: {str(e)}", flush=True)
+        print(f"✗ Language detection error: {str(e)}", flush=True)
         return "EN"
 
-def translate_with_deepl(text, target_lang, preserve_formatting=False):
-    """Translate text using DeepL API"""
+def analyze_document_context(items):
+    """Analyze items to understand document context and extract glossary"""
+    print("=" * 60, flush=True)
+    print("ANALYZING DOCUMENT CONTEXT", flush=True)
+    print("=" * 60, flush=True)
+    
+    all_text = []
+    for item in items[:5]:
+        all_text.append(item.get('item_name', ''))
+        if item.get('details'):
+            all_text.append(item.get('details', ''))
+    
+    context_sample = "\n".join(all_text)
+    
     try:
-        if not deepl_key:
-            raise Exception("DeepL API key not configured")
-        
-        translator = deepl.Translator(deepl_key)
-        
-        # DeepL language codes (uppercase)
-        # Handle special cases
-        if target_lang == "UK":
-            target_lang = "UK"  # Ukrainian
-        elif target_lang == "EN":
-            target_lang = "EN-US"
-        
-        result = translator.translate_text(
-            text,
-            target_lang=target_lang,
-            preserve_formatting=preserve_formatting,
-            tag_handling="xml" if preserve_formatting else None
+        response = openai.ChatCompletion.create(
+            model="gpt-4o",
+            messages=[{
+                "role": "user",
+                "content": f"""Analyze this technical quotation and provide:
+
+1. Industry/Domain (e.g., "Food & Beverage Processing", "Pharmaceutical Equipment")
+2. Main Product Category (e.g., "Bottling Line", "Packaging Machinery")
+3. Technical Terms Glossary - List 10-15 key technical terms that should NOT be translated
+   Format as JSON array: ["term1", "term2", ...]
+
+Quotation sample:
+{context_sample[:1000]}
+
+Return ONLY JSON:
+{{
+  "industry": "...",
+  "product_category": "...",
+  "technical_glossary": [...]
+}}"""
+            }],
+            max_tokens=500,
+            temperature=0
         )
         
-        return result.text
+        result_json = response.choices[0].message.content.strip()
+        if result_json.startswith("```"):
+            result_json = result_json.replace("```json", "").replace("```", "").strip()
+        
+        context = json.loads(result_json)
+        
+        print(f"✓ Industry: {context.get('industry', 'Unknown')}", flush=True)
+        print(f"✓ Product: {context.get('product_category', 'Unknown')}", flush=True)
+        print(f"✓ Glossary: {len(context.get('technical_glossary', []))} terms", flush=True)
+        print("=" * 60, flush=True)
+        
+        return context
         
     except Exception as e:
-        print(f"DeepL translation error: {str(e)}", flush=True)
-        raise
+        print(f"✗ Context analysis failed: {e}", flush=True)
+        return {
+            "industry": "Industrial Equipment",
+            "product_category": "Machinery",
+            "technical_glossary": []
+        }
 
-def translate_items(items, target_lang):
-    """Translate all items to target language using DeepL"""
+def translate_items_with_context(items, target_lang, context):
+    """Translate items using GPT-4o with full context awareness"""
     if target_lang == 'EN' or target_lang == 'EN-US':
         print("Target language is English, no translation needed", flush=True)
         return items
     
     print("=" * 60, flush=True)
-    print(f"TRANSLATING ITEMS TO {target_lang} USING DEEPL", flush=True)
+    print(f"TRANSLATING TO {target_lang} WITH CONTEXT", flush=True)
     print("=" * 60, flush=True)
     
-    if not deepl_key:
-        print("✗ DeepL API key not configured", flush=True)
-        print("Falling back to OpenAI translation", flush=True)
-        return translate_items_openai(items, target_lang)
+    lang_map = {
+        'UK': 'Ukrainian (Українська)',
+        'ES': 'Spanish (Español)',
+        'DE': 'German (Deutsch)',
+        'FR': 'French (Français)',
+        'IT': 'Italian (Italiano)',
+        'RU': 'Russian (Русский)',
+        'PL': 'Polish (Polski)',
+        'PT': 'Portuguese (Português)'
+    }
     
+    target_language_name = lang_map.get(target_lang, target_lang)
+    
+    glossary_text = ", ".join(context.get('technical_glossary', [])[:15])
+    
+    system_prompt = f"""You are a professional technical translator specializing in {context.get('industry', 'industrial equipment')} quotations.
+
+CONTEXT:
+- Document type: Technical B2B Quotation
+- Industry: {context.get('industry', 'Industrial Equipment')}
+- Main product: {context.get('product_category', 'Machinery')}
+- Target language: {target_language_name}
+
+CRITICAL TRANSLATION RULES:
+1. Preserve ALL technical terms, model numbers, and specifications
+2. Keep these terms UNTRANSLATED: {glossary_text}
+3. Translate category names professionally (e.g., "Main Equipment" → appropriate B2B term)
+4. Translate item descriptions while keeping technical specs unchanged
+5. Use formal B2B language appropriate for industrial quotations
+6. Preserve measurements, units, and numbers exactly
+7. Keep brand names, product codes, and model numbers in original language
+
+TRANSLATION STYLE:
+- Professional, formal business language
+- Consistent terminology throughout
+- Natural phrasing for native speakers
+- Preserve document structure and formatting"""
+
     try:
-        translator = deepl.Translator(deepl_key)
-        
-        # Get unique categories
-        categories = list(set([item.get('category', '') for item in items if item.get('category')]))
-        print(f"Translating {len(categories)} categories...", flush=True)
-        
-        # Translate categories
-        category_mapping = {}
-        for category in categories:
-            try:
-                translated = translator.translate_text(
-                    category,
-                    target_lang=target_lang
-                )
-                category_mapping[category] = translated.text
-                print(f"  '{category}' → '{translated.text}'", flush=True)
-            except Exception as e:
-                print(f"  ✗ Failed to translate category '{category}': {e}", flush=True)
-                category_mapping[category] = category
-        
-        # Translate items in batches (to preserve context)
-        print(f"Translating {len(items)} items...", flush=True)
         translated_items = []
+        batch_size = 8
         
-        batch_size = 10
         for i in range(0, len(items), batch_size):
             batch = items[i:i+batch_size]
             
-            # Prepare texts for batch translation
-            item_names = [item.get('item_name', '') for item in batch]
-            item_details = [item.get('details', '') for item in batch]
+            print(f"  Translating batch {i//batch_size + 1}/{(len(items)-1)//batch_size + 1}...", flush=True)
             
-            # Filter out empty strings
-            names_to_translate = [name for name in item_names if name]
-            details_to_translate = [detail for detail in item_details if detail]
+            user_prompt = f"""Translate these {len(batch)} quotation items to {target_language_name}.
+
+Context reminder: This is a {context.get('product_category', 'machinery')} quotation for {context.get('industry', 'industrial equipment')}.
+
+Items to translate:
+{json.dumps(batch, ensure_ascii=False, indent=2)}
+
+Return ONLY the translated JSON array with same structure:"""
             
-            try:
-                # Translate item names
-                if names_to_translate:
-                    translated_names_result = translator.translate_text(
-                        names_to_translate,
-                        target_lang=target_lang
-                    )
-                    # Handle single vs multiple results
-                    if isinstance(translated_names_result, list):
-                        translated_names = [r.text for r in translated_names_result]
-                    else:
-                        translated_names = [translated_names_result.text]
-                else:
-                    translated_names = []
-                
-                # Translate details
-                if details_to_translate:
-                    translated_details_result = translator.translate_text(
-                        details_to_translate,
-                        target_lang=target_lang
-                    )
-                    if isinstance(translated_details_result, list):
-                        translated_details = [r.text for r in translated_details_result]
-                    else:
-                        translated_details = [translated_details_result.text]
-                else:
-                    translated_details = []
-                
-                # Apply translations to batch
-                name_idx = 0
-                detail_idx = 0
-                for item in batch:
-                    translated_item = item.copy()
-                    
-                    # Apply category translation
-                    if item.get('category') in category_mapping:
-                        translated_item['category'] = category_mapping[item['category']]
-                    
-                    # Apply item name translation
-                    if item.get('item_name'):
-                        translated_item['item_name'] = translated_names[name_idx] if name_idx < len(translated_names) else item['item_name']
-                        name_idx += 1
-                    
-                    # Apply details translation
-                    if item.get('details'):
-                        translated_item['details'] = translated_details[detail_idx] if detail_idx < len(translated_details) else item['details']
-                        detail_idx += 1
-                    
-                    translated_items.append(translated_item)
-                
-                print(f"  Batch {i//batch_size + 1}/{(len(items)-1)//batch_size + 1} completed", flush=True)
-                
-            except Exception as e:
-                print(f"  ✗ Batch translation failed: {e}", flush=True)
-                # Keep original for this batch
-                translated_items.extend(batch)
+            response = openai.ChatCompletion.create(
+                model="gpt-4o",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                max_tokens=4000,
+                temperature=0.2
+            )
+            
+            batch_json = response.choices[0].message.content.strip()
+            if batch_json.startswith("```"):
+                batch_json = batch_json.replace("```json", "").replace("```", "").strip()
+            
+            batch_translated = json.loads(batch_json)
+            translated_items.extend(batch_translated)
+            
+            print(f"    ✓ Batch completed", flush=True)
         
-        # Verify translation
         if len(translated_items) > 0:
             sample_orig = items[0]
             sample_trans = translated_items[0]
-            print("\nSample translation:", flush=True)
-            print(f"  Category: '{sample_orig.get('category', '')}' → '{sample_trans.get('category', '')}'", flush=True)
-            print(f"  Item: '{sample_orig.get('item_name', '')[:50]}' → '{sample_trans.get('item_name', '')[:50]}'", flush=True)
+            print("\n📊 Translation Sample:", flush=True)
+            print(f"  Original: '{sample_orig.get('item_name', '')[:60]}'", flush=True)
+            print(f"  Translated: '{sample_trans.get('item_name', '')[:60]}'", flush=True)
         
-        print(f"✓ DeepL translation completed: {len(translated_items)} items", flush=True)
+        print(f"✅ CONTEXT-AWARE TRANSLATION COMPLETED: {len(translated_items)} items", flush=True)
         print("=" * 60, flush=True)
         
         return translated_items
         
     except Exception as e:
-        print(f"✗ DeepL translation failed: {str(e)}", flush=True)
+        print(f"✗ Translation failed: {str(e)}", flush=True)
         import traceback
         traceback.print_exc()
-        print("Falling back to OpenAI translation", flush=True)
-        return translate_items_openai(items, target_lang)
-
-def translate_items_openai(items, target_lang):
-    """Fallback translation using OpenAI"""
-    print("Using OpenAI for translation...", flush=True)
-    
-    lang_map = {
-        'UK': 'Ukrainian',
-        'ES': 'Spanish',
-        'DE': 'German',
-        'FR': 'French',
-        'IT': 'Italian',
-        'RU': 'Russian',
-        'PL': 'Polish'
-    }
-    
-    target_language_name = lang_map.get(target_lang, target_lang)
-    
-    try:
-        translation_prompt = f"""Translate these quotation items to {target_language_name}. Keep technical terms and model numbers unchanged.
-
-{json.dumps(items, ensure_ascii=False, indent=2)}
-
-Return translated JSON:"""
-        
-        response = openai.ChatCompletion.create(
-            model="gpt-4o",
-            messages=[{
-                "role": "system",
-                "content": f"You are a professional translator. Translate to {target_language_name}, preserving technical terms."
-            }, {
-                "role": "user",
-                "content": translation_prompt
-            }],
-            max_tokens=8000,
-            temperature=0.1
-        )
-        
-        translated_json = response.choices[0].message.content.strip()
-        
-        if translated_json.startswith("```"):
-            translated_json = translated_json.replace("```json", "").replace("```", "").strip()
-        
-        return json.loads(translated_json)
-        
-    except Exception as e:
-        print(f"✗ OpenAI translation also failed: {e}", flush=True)
         return items
 
-# [Keep all existing style functions - get_cell_background_color, analyze_template_style, etc.]
+def translate_items(items, target_lang):
+    """Main translation entry point with context analysis"""
+    if target_lang == 'EN' or target_lang == 'EN-US':
+        print("Target language is English, no translation needed", flush=True)
+        return items
+    
+    context = analyze_document_context(items)
+    return translate_items_with_context(items, target_lang, context)
+
 def get_cell_background_color(cell):
     """Extract background color from cell"""
     try:
@@ -524,7 +466,7 @@ def format_price(price_str, format_info):
 
 # MAIN EXECUTION
 print("=" * 60, flush=True)
-print("GENERATE OFFER - SV12 with DeepL", flush=True)
+print("GENERATE OFFER - SV13 Context-Aware Translation", flush=True)
 print("=" * 60, flush=True)
 
 # Load items
@@ -560,7 +502,7 @@ if len(doc.tables) == 0:
 # Detect template language
 target_language = detect_template_language(doc)
 
-# Translate items to target language using DeepL
+# Translate items with context analysis
 items = translate_items(items, target_language)
 
 # Analyze template style
@@ -592,7 +534,6 @@ while len(best_table.rows) > 1:
     best_table._tbl.remove(best_table.rows[1]._tr)
 
 # Group items by category
-from collections import OrderedDict
 categorized_items = OrderedDict()
 for item in items:
     cat = item.get("category", "Main Items")
