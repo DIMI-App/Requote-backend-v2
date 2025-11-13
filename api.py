@@ -160,13 +160,13 @@ def convert_to_docx_python(input_path, output_path, file_format):
             return False
             
         elif file_format in ['xlsx', 'xls']:
-            # Excel template - convert to DOCX with standardized 5-column pricing table
+            # Excel template - convert to DOCX preserving actual table structure
             import openpyxl
             from docx import Document
             from docx.shared import Pt, RGBColor
             from docx.enum.text import WD_ALIGN_PARAGRAPH
             
-            print(f"Converting {file_format.upper()} template to DOCX with standard pricing table...", flush=True)
+            print(f"Converting {file_format.upper()} template to DOCX preserving table structure...", flush=True)
             
             # Read Excel
             workbook = openpyxl.load_workbook(input_path, data_only=True)
@@ -175,50 +175,65 @@ def convert_to_docx_python(input_path, output_path, file_format):
             # Create new DOCX
             docx_doc = Document()
             
-            # Extract header rows (typically company info, title, etc.)
-            header_rows = []
-            data_start_row = 0
+            # Extract ALL rows from Excel
+            all_rows = []
+            for row in sheet.iter_rows(values_only=True):
+                row_data = [str(cell) if cell is not None else '' for cell in row]
+                all_rows.append(row_data)
             
-            for idx, row in enumerate(sheet.iter_rows(values_only=True, max_row=20)):
-                row_text = ' '.join([str(cell) if cell is not None else '' for cell in row]).strip()
-                
-                # Detect where the pricing table starts (look for keywords like "Description", "Price", "Qty", "Item")
-                if any(keyword in row_text.upper() for keyword in ['DESCRIPTION', 'PRICE', 'QTY', 'QUANTITY', 'ITEM', 'TOTAL']):
-                    data_start_row = idx
+            print(f"  Found {len(all_rows)} rows in Excel", flush=True)
+            
+            # Find the pricing table header (the row with keywords)
+            table_start_row = None
+            for idx, row in enumerate(all_rows):
+                row_text = ' '.join(row).upper()
+                if any(keyword in row_text for keyword in ['POSITION', 'DESCRIPTION', 'PRICE', 'QUANTITY', 'TOTAL']):
+                    table_start_row = idx
+                    print(f"  Found pricing table header at row {idx + 1}", flush=True)
                     break
-                elif row_text:  # Non-empty header row
-                    header_rows.append(row_text)
             
-            # Add header information as paragraphs
-            for header in header_rows[:5]:  # Max 5 header lines
-                if header:
-                    para = docx_doc.add_paragraph(header)
+            if table_start_row is None:
+                # No clear table found, use generic approach
+                print(f"  No pricing table header found, using generic conversion", flush=True)
+                table_start_row = 0
+            
+            # Add header rows (before the table) as paragraphs
+            for idx in range(table_start_row):
+                row_text = ' '.join(all_rows[idx]).strip()
+                if row_text:
+                    para = docx_doc.add_paragraph(row_text)
                     para.alignment = WD_ALIGN_PARAGRAPH.LEFT
             
-            if header_rows:
+            if table_start_row > 0:
                 docx_doc.add_paragraph()  # Spacing
             
-            # Create standardized 5-column pricing table
-            # Columns: # | Description | Unit Price | Qty | Total
-            pricing_table = docx_doc.add_table(rows=1, cols=5)
-            pricing_table.style = 'Light Grid Accent 1'
+            # Create DOCX table from Excel data (from table header onwards)
+            table_rows = all_rows[table_start_row:]
             
-            # Set header row
-            header_cells = pricing_table.rows[0].cells
-            header_cells[0].text = '#'
-            header_cells[1].text = 'Description'
-            header_cells[2].text = 'Unit Price'
-            header_cells[3].text = 'Qty'
-            header_cells[4].text = 'Total'
-            
-            # Make header bold
-            for cell in header_cells:
-                for paragraph in cell.paragraphs:
-                    for run in paragraph.runs:
-                        run.font.bold = True
-            
-            print(f"  ✓ Created 5-column pricing table template", flush=True)
-            print(f"  ✓ Extracted {len(header_rows)} header lines", flush=True)
+            if table_rows:
+                # Determine number of columns (max columns in any row)
+                num_cols = max(len(row) for row in table_rows)
+                num_rows = len(table_rows)
+                
+                print(f"  Creating table: {num_rows} rows × {num_cols} columns", flush=True)
+                
+                # Create table
+                docx_table = docx_doc.add_table(rows=num_rows, cols=num_cols)
+                docx_table.style = 'Light Grid Accent 1'
+                
+                # Fill table with Excel data
+                for row_idx, row_data in enumerate(table_rows):
+                    for col_idx in range(num_cols):
+                        cell_text = row_data[col_idx] if col_idx < len(row_data) else ''
+                        docx_table.rows[row_idx].cells[col_idx].text = cell_text
+                        
+                        # Make first row bold (header)
+                        if row_idx == 0:
+                            for paragraph in docx_table.rows[row_idx].cells[col_idx].paragraphs:
+                                for run in paragraph.runs:
+                                    run.font.bold = True
+                
+                print(f"  ✓ Table created with all Excel data", flush=True)
             
             # Save as DOCX
             docx_doc.save(output_path)
