@@ -70,12 +70,48 @@ def convert_to_docx_python(input_path, output_path, file_format):
             print("✓ DOCX template ready", flush=True)
             return True
         
+        elif file_format == 'pdf':
+            # PDF template - convert to DOCX using python-docx and PyMuPDF
+            import fitz  # PyMuPDF
+            from docx import Document
+            from docx.shared import Pt
+            
+            print("Converting PDF template to DOCX...", flush=True)
+            
+            # Read PDF
+            pdf_doc = fitz.open(input_path)
+            
+            # Create new DOCX
+            docx_doc = Document()
+            
+            # Extract text from PDF and add to DOCX
+            for page_num in range(len(pdf_doc)):
+                page = pdf_doc[page_num]
+                text = page.get_text()
+                
+                # Add page content
+                if text.strip():
+                    para = docx_doc.add_paragraph(text)
+                    for run in para.runs:
+                        run.font.size = Pt(11)
+                
+                # Add page break except for last page
+                if page_num < len(pdf_doc) - 1:
+                    docx_doc.add_page_break()
+            
+            pdf_doc.close()
+            
+            # Save as DOCX
+            docx_doc.save(output_path)
+            print("✓ PDF converted to DOCX template", flush=True)
+            return True
+        
         elif file_format == 'doc':
             # DOC files need LibreOffice, so we'll ask user to upload DOCX instead
             print("✗ DOC format requires LibreOffice. Please upload DOCX.", flush=True)
             return False
             
-        elif file_format in ['pdf', 'xlsx', 'xls']:
+        elif file_format in ['xlsx', 'xls']:
             # These formats are not suitable as templates
             # Templates should be DOCX so we can edit them
             print(f"✗ {file_format.upper()} is not a suitable template format. Please upload DOCX.", flush=True)
