@@ -5,10 +5,18 @@ services:
     buildCommand: |
       echo "=== Starting build ===" &&
       apt-get update -qq &&
-      echo "=== Installing LibreOffice ===" &&
-      apt-get install -y libreoffice libreoffice-writer libreoffice-calc &&
-      echo "=== LibreOffice installed ===" &&
+      echo "=== Installing LibreOffice with all dependencies ===" &&
+      DEBIAN_FRONTEND=noninteractive apt-get install -y \
+        libreoffice \
+        libreoffice-writer \
+        libreoffice-calc \
+        libreoffice-common \
+        fonts-liberation \
+        fonts-dejavu \
+        default-jre-headless &&
+      echo "=== Testing LibreOffice ===" &&
       libreoffice --version &&
+      which libreoffice &&
       echo "=== Installing Python packages ===" &&
       pip install -r requirements.txt &&
       echo "=== Build complete ==="
