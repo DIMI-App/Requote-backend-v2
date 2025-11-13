@@ -474,7 +474,7 @@ def api_status():
 
 @app.route('/api/upload-offer2', methods=['POST', 'OPTIONS'])
 def api_upload_offer2():
-    """Upload Offer 2 template - DOCX only (other formats not suitable for templates)"""
+    """Upload Offer 2 template - DOCX or XLSX"""
     if request.method == 'OPTIONS':
         return '', 204
     
@@ -500,15 +500,20 @@ def api_upload_offer2():
         
         print(f"✓ Template format: {file_extension.upper()}", flush=True)
         
-        # Save template
-        template_path = os.path.join(BASE_DIR, 'offer2_template.docx')
-        
-        if file_extension == 'docx':
-            # DOCX is perfect - just save it
+        # Save template with correct extension
+        if file_extension in ['xlsx', 'xls']:
+            # Save Excel template as-is
+            template_path = os.path.join(BASE_DIR, f'offer2_template.{file_extension}')
             file.save(template_path)
-            print(f"✓ DOCX template saved directly", flush=True)
+            print(f"✓ XLSX template saved: {template_path}", flush=True)
+        elif file_extension == 'docx':
+            # Save DOCX template
+            template_path = os.path.join(BASE_DIR, 'offer2_template.docx')
+            file.save(template_path)
+            print(f"✓ DOCX template saved: {template_path}", flush=True)
         else:
-            # Other formats - save original and try to convert
+            # Other formats - save and try to convert to DOCX
+            template_path = os.path.join(BASE_DIR, 'offer2_template.docx')
             original_path = os.path.join(BASE_DIR, f'offer2_template_original.{file_extension}')
             file.save(original_path)
             
@@ -576,9 +581,27 @@ def api_generate_offer():
         if not os.path.exists(items_path):
             return jsonify({'error': 'No items found. Please process Offer 1 first.'}), 400
         
-        template_path = os.path.join(BASE_DIR, 'offer2_template.docx')
-        if not os.path.exists(template_path):
+        # Detect template format
+        template_docx = os.path.join(BASE_DIR, 'offer2_template.docx')
+        template_xlsx = os.path.join(BASE_DIR, 'offer2_template.xlsx')
+        template_xls = os.path.join(BASE_DIR, 'offer2_template.xls')
+        
+        template_path = None
+        template_format = None
+        
+        if os.path.exists(template_xlsx):
+            template_path = template_xlsx
+            template_format = 'xlsx'
+        elif os.path.exists(template_xls):
+            template_path = template_xls
+            template_format = 'xlsx'
+        elif os.path.exists(template_docx):
+            template_path = template_docx
+            template_format = 'docx'
+        else:
             return jsonify({'error': 'No template found. Please upload Offer 2 template first.'}), 400
+        
+        print(f"✓ Using {template_format.upper()} template: {template_path}", flush=True)
         
         if markup > 0:
             print(f"Applying {markup}% markup...", flush=True)
@@ -593,7 +616,16 @@ def api_generate_offer():
                 json.dump(full_data, f, ensure_ascii=False, indent=2)
         
         print("Generating final offer...", flush=True)
-        generate_script_path = os.path.join(BASE_DIR, 'generate_offer_doc.py')
+        
+        # Use appropriate generator script based on template format
+        if template_format == 'xlsx':
+            generate_script_path = os.path.join(BASE_DIR, 'generate_offer_xlsx.py')
+            output_filename = 'final_offer1.xlsx'
+            output_mimetype = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        else:
+            generate_script_path = os.path.join(BASE_DIR, 'generate_offer_doc.py')
+            output_filename = 'final_offer1.docx'
+            output_mimetype = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
         
         result = subprocess.run(
             ['python', generate_script_path],
@@ -612,7 +644,7 @@ def api_generate_offer():
                 'details': result.stderr
             }), 500
         
-        output_path = os.path.join(OUTPUT_FOLDER, 'final_offer1.docx')
+        output_path = os.path.join(OUTPUT_FOLDER, output_filename)
         if not os.path.exists(output_path):
             return jsonify({'error': 'Output file not generated'}), 500
         
@@ -626,7 +658,8 @@ def api_generate_offer():
             'success': True,
             'message': 'Offer generated successfully',
             'download_url': '/api/download-offer',
-            'items_count': len(items)
+            'items_count': len(items),
+            'output_format': template_format
         })
         
     except Exception as e:
@@ -641,16 +674,26 @@ def api_download_offer():
         return '', 204
     
     try:
-        output_path = os.path.join(OUTPUT_FOLDER, 'final_offer1.docx')
+        # Check which format was generated
+        output_xlsx = os.path.join(OUTPUT_FOLDER, 'final_offer1.xlsx')
+        output_docx = os.path.join(OUTPUT_FOLDER, 'final_offer1.docx')
         
-        if not os.path.exists(output_path):
+        if os.path.exists(output_xlsx):
+            output_path = output_xlsx
+            mimetype = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            download_name = 'requoted_offer.xlsx'
+        elif os.path.exists(output_docx):
+            output_path = output_docx
+            mimetype = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+            download_name = 'requoted_offer.docx'
+        else:
             return jsonify({'error': 'No offer generated yet'}), 404
         
         return send_file(
             output_path,
-            mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            mimetype=mimetype,
             as_attachment=True,
-            download_name='requoted_offer.docx'
+            download_name=download_name
         )
         
     except Exception as e:
