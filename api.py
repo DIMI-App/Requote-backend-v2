@@ -160,10 +160,61 @@ def convert_to_docx_python(input_path, output_path, file_format):
             return False
             
         elif file_format in ['xlsx', 'xls']:
-            # These formats are not suitable as templates
-            # Templates should be DOCX so we can edit them
-            print(f"✗ {file_format.upper()} is not a suitable template format. Please upload DOCX.", flush=True)
-            return False
+            # Excel template - convert to DOCX with table structure
+            import openpyxl
+            from docx import Document
+            from docx.shared import Pt
+            
+            print(f"Converting {file_format.upper()} template to DOCX...", flush=True)
+            
+            # Read Excel
+            workbook = openpyxl.load_workbook(input_path, data_only=True)
+            
+            # Create new DOCX
+            docx_doc = Document()
+            
+            # Process all sheets
+            for sheet_idx, sheet_name in enumerate(workbook.sheetnames):
+                sheet = workbook[sheet_name]
+                
+                # Add sheet name as heading if multiple sheets
+                if len(workbook.sheetnames) > 1:
+                    docx_doc.add_heading(sheet_name, level=1)
+                
+                # Extract data from sheet
+                data = []
+                for row in sheet.iter_rows(values_only=True):
+                    row_data = [str(cell) if cell is not None else '' for cell in row]
+                    # Only add non-empty rows
+                    if any(cell.strip() for cell in row_data):
+                        data.append(row_data)
+                
+                if data:
+                    # Get max columns
+                    num_cols = max(len(row) for row in data)
+                    num_rows = len(data)
+                    
+                    # Create DOCX table
+                    docx_table = docx_doc.add_table(rows=num_rows, cols=num_cols)
+                    docx_table.style = 'Light Grid Accent 1'
+                    
+                    # Fill table
+                    for row_idx, row_data in enumerate(data):
+                        for col_idx, cell_text in enumerate(row_data):
+                            if col_idx < num_cols:
+                                cell = docx_table.rows[row_idx].cells[col_idx]
+                                cell.text = cell_text
+                    
+                    print(f"  ✓ Converted sheet '{sheet_name}': {num_rows} rows × {num_cols} cols", flush=True)
+                
+                # Add page break between sheets (except last)
+                if sheet_idx < len(workbook.sheetnames) - 1:
+                    docx_doc.add_page_break()
+            
+            # Save as DOCX
+            docx_doc.save(output_path)
+            print(f"✓ {file_format.upper()} converted to DOCX template with tables", flush=True)
+            return True
             
         else:
             print(f"✗ Unsupported template format: {file_format}", flush=True)
