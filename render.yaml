@@ -15,4 +15,4 @@ services:
       - key: DEEPL_API_KEY
         sync: false
     plan: free
-    autoDeploy: false
+    autoDeploy: true
