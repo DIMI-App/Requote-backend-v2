@@ -71,12 +71,14 @@ def convert_to_docx_python(input_path, output_path, file_format):
             return True
         
         elif file_format == 'pdf':
-            # PDF template - convert to DOCX using python-docx and PyMuPDF
+            # PDF template - extract table structure and convert to DOCX
             import fitz  # PyMuPDF
             from docx import Document
-            from docx.shared import Pt
+            from docx.shared import Pt, RGBColor
+            from docx.oxml.ns import qn
+            from docx.oxml import OxmlElement
             
-            print("Converting PDF template to DOCX...", flush=True)
+            print("Converting PDF template to DOCX with table extraction...", flush=True)
             
             # Read PDF
             pdf_doc = fitz.open(input_path)
@@ -84,16 +86,62 @@ def convert_to_docx_python(input_path, output_path, file_format):
             # Create new DOCX
             docx_doc = Document()
             
-            # Extract text from PDF and add to DOCX
+            # Process each page
             for page_num in range(len(pdf_doc)):
                 page = pdf_doc[page_num]
-                text = page.get_text()
                 
-                # Add page content
-                if text.strip():
-                    para = docx_doc.add_paragraph(text)
-                    for run in para.runs:
-                        run.font.size = Pt(11)
+                # Try to find tables in the PDF
+                tables = page.find_tables()
+                
+                if tables:
+                    print(f"  Found {len(tables)} table(s) on page {page_num + 1}", flush=True)
+                    
+                    for table_idx, table in enumerate(tables):
+                        # Extract table data
+                        table_data = table.extract()
+                        
+                        if not table_data or len(table_data) == 0:
+                            continue
+                        
+                        # Create DOCX table
+                        num_rows = len(table_data)
+                        num_cols = max(len(row) for row in table_data) if table_data else 0
+                        
+                        if num_cols > 0:
+                            docx_table = docx_doc.add_table(rows=num_rows, cols=num_cols)
+                            docx_table.style = 'Light Grid Accent 1'
+                            
+                            # Fill table with data
+                            for row_idx, row_data in enumerate(table_data):
+                                for col_idx, cell_text in enumerate(row_data):
+                                    if col_idx < num_cols:
+                                        cell = docx_table.rows[row_idx].cells[col_idx]
+                                        cell.text = str(cell_text) if cell_text else ""
+                            
+                            print(f"    ✓ Created table {table_idx + 1}: {num_rows} rows × {num_cols} cols", flush=True)
+                else:
+                    # No tables found, extract as text
+                    text = page.get_text()
+                    if text.strip():
+                        # Try to detect if text looks like a table (has multiple columns)
+                        lines = text.strip().split('\n')
+                        
+                        # Simple heuristic: if lines have consistent spacing, might be a table
+                        if len(lines) > 2:
+                            # Create a simple table from text
+                            docx_table = docx_doc.add_table(rows=len(lines), cols=5)
+                            docx_table.style = 'Light Grid Accent 1'
+                            
+                            for row_idx, line in enumerate(lines):
+                                # Split line into cells (rough approximation)
+                                parts = line.split()
+                                for col_idx in range(min(5, len(parts))):
+                                    cell = docx_table.rows[row_idx].cells[col_idx]
+                                    cell.text = parts[col_idx] if col_idx < len(parts) else ""
+                            
+                            print(f"  Created text-based table on page {page_num + 1}", flush=True)
+                        else:
+                            para = docx_doc.add_paragraph(text)
                 
                 # Add page break except for last page
                 if page_num < len(pdf_doc) - 1:
@@ -103,7 +151,7 @@ def convert_to_docx_python(input_path, output_path, file_format):
             
             # Save as DOCX
             docx_doc.save(output_path)
-            print("✓ PDF converted to DOCX template", flush=True)
+            print("✓ PDF converted to DOCX template with tables", flush=True)
             return True
         
         elif file_format == 'doc':
