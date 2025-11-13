@@ -7,3 +7,4 @@ gunicorn==21.2.0
 PyMuPDF==1.23.8
 Pillow==10.1.0
 deepl==1.18.0
+openpyxl==3.1.2
