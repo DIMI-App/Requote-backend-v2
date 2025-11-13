@@ -513,10 +513,35 @@ def api_upload_offer2():
             file.save(original_path)
             
             print(f"Converting {file_extension.upper()} template to DOCX...", flush=True)
-            if not convert_to_docx_python(original_path, template_path, file_extension):
+            print(f"  Original file: {original_path} ({os.path.getsize(original_path)} bytes)", flush=True)
+            
+            conversion_success = convert_to_docx_python(original_path, template_path, file_extension)
+            
+            if not conversion_success:
+                print(f"✗ Conversion returned False", flush=True)
                 return jsonify({
-                    'error': f'Cannot convert {file_extension.upper()} to template format. Please upload a DOCX file.',
-                    'suggestion': 'Templates must be DOCX format so they can be edited with your pricing.'
+                    'error': f'Cannot convert {file_extension.upper()} to template format.',
+                    'suggestion': 'Please try uploading a DOCX template instead.'
+                }), 500
+            
+            # Verify the file was actually created
+            if not os.path.exists(template_path):
+                print(f"✗ Template file not created at {template_path}", flush=True)
+                return jsonify({
+                    'error': f'Conversion failed - output file not created.',
+                    'suggestion': 'Please try uploading a DOCX template instead.'
+                }), 500
+            
+            # Verify it's a valid DOCX
+            try:
+                from docx import Document
+                test_doc = Document(template_path)
+                print(f"✓ Template validation: {len(test_doc.tables)} tables, {len(test_doc.paragraphs)} paragraphs", flush=True)
+            except Exception as ve:
+                print(f"✗ Template validation failed: {str(ve)}", flush=True)
+                return jsonify({
+                    'error': f'Converted template is invalid.',
+                    'suggestion': 'Please try uploading a DOCX template instead.'
                 }), 500
         
         if os.path.exists(template_path):
