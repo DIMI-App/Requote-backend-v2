@@ -8,6 +8,9 @@ import threading
 import time
 import shutil
 
+# Import the Python converter
+from python_converter_final import convert_to_pdf_python
+
 app = Flask(__name__)
 
 CORS(app, resources={
@@ -31,7 +34,7 @@ os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
 
-# Allowed file extensions
+# Allowed file extensions - ALL formats now supported with Python converter!
 ALLOWED_OFFER1_EXTENSIONS = {'pdf', 'docx', 'doc', 'xlsx', 'xls', 'png', 'jpg', 'jpeg'}
 ALLOWED_OFFER2_EXTENSIONS = {'docx', 'doc', 'xlsx', 'xls', 'pdf'}
 
@@ -47,36 +50,6 @@ processing_status = {
     'file_format': None
 }
 
-def check_libreoffice():
-    """Check if LibreOffice is available and working"""
-    try:
-        result = subprocess.run(
-            ['which', 'libreoffice'],
-            capture_output=True,
-            text=True,
-            timeout=5
-        )
-        if result.returncode == 0:
-            libreoffice_path = result.stdout.strip()
-            print(f"✓ LibreOffice found at: {libreoffice_path}", flush=True)
-            
-            # Try to get version
-            version_result = subprocess.run(
-                ['libreoffice', '--version'],
-                capture_output=True,
-                text=True,
-                timeout=5
-            )
-            if version_result.returncode == 0:
-                print(f"✓ LibreOffice version: {version_result.stdout.strip()}", flush=True)
-                return True
-        
-        print("✗ LibreOffice not found", flush=True)
-        return False
-    except Exception as e:
-        print(f"✗ LibreOffice check failed: {str(e)}", flush=True)
-        return False
-
 def allowed_file(filename, allowed_extensions):
     """Check if file extension is allowed"""
     return '.' in filename and \
@@ -86,84 +59,8 @@ def get_file_extension(filename):
     """Get file extension in lowercase"""
     return filename.rsplit('.', 1)[1].lower() if '.' in filename else ''
 
-def convert_to_pdf(input_path, output_path, file_format):
-    """Convert various formats to PDF for unified processing"""
-    try:
-        print(f"Converting {file_format.upper()} to PDF...", flush=True)
-        print(f"  Input: {input_path}", flush=True)
-        print(f"  Output: {output_path}", flush=True)
-        
-        if file_format in ['docx', 'doc', 'xlsx', 'xls']:
-            # Check LibreOffice availability first
-            if not check_libreoffice():
-                print("✗ LibreOffice is not available", flush=True)
-                return False
-            
-            # Convert Office documents to PDF using LibreOffice
-            output_dir = os.path.dirname(output_path)
-            
-            print(f"  Running LibreOffice conversion...", flush=True)
-            result = subprocess.run(
-                ['libreoffice', '--headless', '--convert-to', 'pdf', 
-                 '--outdir', output_dir, input_path],
-                capture_output=True,
-                text=True,
-                timeout=120
-            )
-            
-            print(f"  Return code: {result.returncode}", flush=True)
-            if result.stdout:
-                print(f"  STDOUT: {result.stdout}", flush=True)
-            if result.stderr:
-                print(f"  STDERR: {result.stderr}", flush=True)
-            
-            if result.returncode == 0:
-                # LibreOffice outputs to same directory with .pdf extension
-                base_name = os.path.splitext(os.path.basename(input_path))[0]
-                converted_file = os.path.join(output_dir, base_name + '.pdf')
-                
-                print(f"  Looking for: {converted_file}", flush=True)
-                
-                if os.path.exists(converted_file):
-                    if converted_file != output_path:
-                        print(f"  Moving {converted_file} to {output_path}", flush=True)
-                        shutil.move(converted_file, output_path)
-                    print(f"✓ {file_format.upper()} converted to PDF", flush=True)
-                    return True
-                else:
-                    print(f"✗ Converted file not found at {converted_file}", flush=True)
-                    # List directory contents
-                    print(f"  Directory contents:", flush=True)
-                    for f in os.listdir(output_dir):
-                        print(f"    - {f}", flush=True)
-                    return False
-            else:
-                print(f"✗ Conversion failed with return code {result.returncode}", flush=True)
-                return False
-            
-        elif file_format in ['png', 'jpg', 'jpeg']:
-            # Images are supported directly by PyMuPDF
-            print("✓ Image file - will be processed directly", flush=True)
-            return True
-            
-        else:
-            print(f"✗ Unsupported format: {file_format}", flush=True)
-            return False
-            
-    except FileNotFoundError:
-        print("✗ LibreOffice command not found", flush=True)
-        return False
-    except subprocess.TimeoutExpired:
-        print("✗ LibreOffice conversion timed out", flush=True)
-        return False
-    except Exception as e:
-        print(f"✗ Conversion error: {str(e)}", flush=True)
-        import traceback
-        traceback.print_exc()
-        return False
-
-def convert_to_docx(input_path, output_path, file_format):
-    """Convert various template formats to DOCX"""
+def convert_to_docx_python(input_path, output_path, file_format):
+    """Convert template formats to DOCX using Python"""
     try:
         print(f"Converting {file_format.upper()} template to DOCX...", flush=True)
         
@@ -172,47 +69,22 @@ def convert_to_docx(input_path, output_path, file_format):
             shutil.copy(input_path, output_path)
             print("✓ DOCX template ready", flush=True)
             return True
+        
+        elif file_format == 'doc':
+            # DOC files need LibreOffice, so we'll ask user to upload DOCX instead
+            print("✗ DOC format requires LibreOffice. Please upload DOCX.", flush=True)
+            return False
             
-        elif file_format in ['doc', 'pdf', 'xlsx', 'xls']:
-            # Check LibreOffice availability first
-            if not check_libreoffice():
-                print("✗ LibreOffice is not available", flush=True)
-                return False
-            
-            # Convert to DOCX using LibreOffice
-            output_dir = os.path.dirname(output_path)
-            
-            result = subprocess.run(
-                ['libreoffice', '--headless', '--convert-to', 'docx', 
-                 '--outdir', output_dir, input_path],
-                capture_output=True,
-                text=True,
-                timeout=120
-            )
-            
-            if result.returncode == 0:
-                base_name = os.path.splitext(os.path.basename(input_path))[0]
-                converted_file = os.path.join(output_dir, base_name + '.docx')
-                
-                if os.path.exists(converted_file):
-                    if converted_file != output_path:
-                        shutil.move(converted_file, output_path)
-                    print(f"✓ {file_format.upper()} template converted to DOCX", flush=True)
-                    return True
-            
-            print(f"✗ Template conversion failed: {result.stderr}", flush=True)
+        elif file_format in ['pdf', 'xlsx', 'xls']:
+            # These formats are not suitable as templates
+            # Templates should be DOCX so we can edit them
+            print(f"✗ {file_format.upper()} is not a suitable template format. Please upload DOCX.", flush=True)
             return False
             
         else:
             print(f"✗ Unsupported template format: {file_format}", flush=True)
             return False
             
-    except FileNotFoundError:
-        print("✗ LibreOffice command not found", flush=True)
-        return False
-    except subprocess.TimeoutExpired:
-        print("✗ LibreOffice conversion timed out", flush=True)
-        return False
     except Exception as e:
         print(f"✗ Template conversion error: {str(e)}", flush=True)
         import traceback
@@ -228,14 +100,11 @@ def after_request(response):
 
 @app.route('/', methods=['GET'])
 def home():
-    # Check LibreOffice on startup
-    libreoffice_available = check_libreoffice()
-    
     return jsonify({
         'message': 'Requote AI Backend is running!',
-        'version': 'SV9-FullMultiFormat-Fixed',
+        'version': 'SV10-PythonConverter',
         'status': 'healthy',
-        'libreoffice_available': libreoffice_available,
+        'conversion_method': 'Pure Python (no LibreOffice required)',
         'supported_formats': {
             'offer1': list(ALLOWED_OFFER1_EXTENSIONS),
             'offer2': list(ALLOWED_OFFER2_EXTENSIONS)
@@ -249,7 +118,7 @@ def process_file_background(filepath, file_extension):
     try:
         with _status_lock:
             processing_status['status'] = 'processing'
-            processing_status['message'] = f'Processing {file_extension.upper()} file...'
+            processing_status['message'] = f'Processing {file_extension.UPPER()} file...'
             processing_status['file_format'] = file_extension
             processing_status['started_at'] = time.time()
             processing_status['updated_at'] = time.time()
@@ -262,35 +131,25 @@ def process_file_background(filepath, file_extension):
         pdf_path = os.path.join(UPLOAD_FOLDER, 'offer1.pdf')
         
         if file_extension == 'pdf':
-            # Already PDF, just rename/copy
+            # Already PDF, just copy
             if filepath != pdf_path:
                 shutil.copy(filepath, pdf_path)
             print("✓ PDF ready for processing", flush=True)
             
-        elif file_extension in ['docx', 'doc', 'xlsx', 'xls']:
-            # Convert to PDF first
+        elif file_extension in ['docx', 'doc', 'xlsx', 'xls', 'png', 'jpg', 'jpeg']:
+            # Convert to PDF using Python (NO LibreOffice needed!)
             with _status_lock:
-                processing_status['message'] = f'Converting {file_extension.upper()} to PDF (this may take 30-60 seconds)...'
+                processing_status['message'] = f'Converting {file_extension.upper()} to PDF using Python...'
                 processing_status['updated_at'] = time.time()
             
-            conversion_success = convert_to_pdf(filepath, pdf_path, file_extension)
+            conversion_success = convert_to_pdf_python(filepath, pdf_path, file_extension)
             
             if not conversion_success:
                 with _status_lock:
                     processing_status['status'] = 'error'
-                    processing_status['message'] = f'Failed to convert {file_extension.upper()} to PDF. LibreOffice may not be installed or working properly. Please try uploading a PDF file instead.'
+                    processing_status['message'] = f'Failed to convert {file_extension.upper()} to PDF. Please try a different file or contact support.'
                     processing_status['updated_at'] = time.time()
                 return
-                
-        elif file_extension in ['png', 'jpg', 'jpeg']:
-            # Images processed directly by extract script
-            with _status_lock:
-                processing_status['message'] = 'Processing image file...'
-                processing_status['updated_at'] = time.time()
-            
-            # Copy image to expected location  
-            shutil.copy(filepath, pdf_path.replace('.pdf', f'.{file_extension}'))
-            
         else:
             with _status_lock:
                 processing_status['status'] = 'error'
@@ -370,7 +229,7 @@ def process_file_background(filepath, file_extension):
 
 @app.route('/api/process-offer1', methods=['POST', 'OPTIONS'])
 def api_process_offer1():
-    """Process Offer 1 - supports multiple formats"""
+    """Process Offer 1 - supports multiple formats with Python converter"""
     global processing_status
     
     if request.method == 'OPTIONS':
@@ -456,7 +315,7 @@ def api_status():
 
 @app.route('/api/upload-offer2', methods=['POST', 'OPTIONS'])
 def api_upload_offer2():
-    """Upload Offer 2 template - supports DOCX, DOC, XLSX, XLS, PDF"""
+    """Upload Offer 2 template - DOCX only (other formats not suitable for templates)"""
     if request.method == 'OPTIONS':
         return '', 204
     
@@ -482,35 +341,34 @@ def api_upload_offer2():
         
         print(f"✓ Template format: {file_extension.upper()}", flush=True)
         
-        # Save original file
-        original_path = os.path.join(BASE_DIR, f'offer2_template_original.{file_extension}')
-        file.save(original_path)
-        
-        print(f"✓ Template saved: {original_path}", flush=True)
-        print(f"✓ Size: {os.path.getsize(original_path)} bytes", flush=True)
-        
-        # Convert to DOCX (required format for generation script)
+        # Save template
         template_path = os.path.join(BASE_DIR, 'offer2_template.docx')
         
-        if file_extension != 'docx':
-            print(f"Converting {file_extension.upper()} template to DOCX...", flush=True)
-            if not convert_to_docx(original_path, template_path, file_extension):
-                return jsonify({
-                    'error': f'Failed to convert {file_extension.upper()} to DOCX. LibreOffice may not be installed.',
-                    'suggestion': 'Please upload a DOCX file instead or ensure LibreOffice is installed.'
-                }), 500
+        if file_extension == 'docx':
+            # DOCX is perfect - just save it
+            file.save(template_path)
+            print(f"✓ DOCX template saved directly", flush=True)
         else:
-            # Already DOCX, just copy
-            shutil.copy(original_path, template_path)
+            # Other formats - save original and try to convert
+            original_path = os.path.join(BASE_DIR, f'offer2_template_original.{file_extension}')
+            file.save(original_path)
+            
+            print(f"Converting {file_extension.upper()} template to DOCX...", flush=True)
+            if not convert_to_docx_python(original_path, template_path, file_extension):
+                return jsonify({
+                    'error': f'Cannot convert {file_extension.upper()} to template format. Please upload a DOCX file.',
+                    'suggestion': 'Templates must be DOCX format so they can be edited with your pricing.'
+                }), 500
         
-        print(f"✓ Template ready for use: {template_path}", flush=True)
+        if os.path.exists(template_path):
+            print(f"✓ Template ready: {template_path}", flush=True)
+            print(f"✓ Size: {os.path.getsize(template_path)} bytes", flush=True)
         print("=" * 60, flush=True)
         
         return jsonify({
             'success': True,
             'message': f'Template uploaded successfully ({file_extension.upper()})',
-            'file_format': file_extension,
-            'converted_to': 'docx'
+            'file_format': file_extension
         })
         
     except Exception as e:
@@ -638,16 +496,10 @@ def apply_markup_to_items(items, markup_percent):
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     print("=" * 60)
-    print("Starting Requote AI Backend - SV9 Full MultiFormat FIXED")
+    print("Starting Requote AI Backend - SV10 Python Converter")
     print(f"Server at: http://0.0.0.0:{port}")
+    print(f"Conversion method: Pure Python (no LibreOffice)")
     print(f"Supported Offer 1 formats: {', '.join(ALLOWED_OFFER1_EXTENSIONS)}")
     print(f"Supported Offer 2 formats: {', '.join(ALLOWED_OFFER2_EXTENSIONS)}")
-    
-    # Check LibreOffice on startup
-    if check_libreoffice():
-        print("✓ LibreOffice is ready")
-    else:
-        print("⚠ LibreOffice NOT available - DOCX/DOC/XLSX/XLS conversion will fail")
-    
     print("=" * 60)
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    app.run(debug=True, host='0.0.0.0', port=port)
