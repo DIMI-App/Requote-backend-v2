@@ -118,7 +118,7 @@ def process_file_background(filepath, file_extension):
     try:
         with _status_lock:
             processing_status['status'] = 'processing'
-            processing_status['message'] = f'Processing {file_extension.UPPER()} file...'
+            processing_status['message'] = f'Processing {file_extension.upper()} file...'
             processing_status['file_format'] = file_extension
             processing_status['started_at'] = time.time()
             processing_status['updated_at'] = time.time()
