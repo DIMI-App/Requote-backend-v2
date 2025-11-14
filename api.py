@@ -698,23 +698,43 @@ def api_download_offer():
         output_xlsx = os.path.join(OUTPUT_FOLDER, 'final_offer1.xlsx')
         output_docx = os.path.join(OUTPUT_FOLDER, 'final_offer1.docx')
         
+        print("=== DOWNLOAD REQUEST ===", flush=True)
+        print(f"Checking XLSX: {output_xlsx} - exists: {os.path.exists(output_xlsx)}", flush=True)
+        print(f"Checking DOCX: {output_docx} - exists: {os.path.exists(output_docx)}", flush=True)
+        
         if os.path.exists(output_xlsx):
             output_path = output_xlsx
             mimetype = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
             download_name = 'requoted_offer.xlsx'
+            print(f"✓ Sending XLSX: {download_name}", flush=True)
         elif os.path.exists(output_docx):
             output_path = output_docx
             mimetype = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
             download_name = 'requoted_offer.docx'
+            print(f"✓ Sending DOCX: {download_name}", flush=True)
         else:
+            print("✗ No output file found", flush=True)
             return jsonify({'error': 'No offer generated yet'}), 404
         
-        return send_file(
-            output_path,
-            mimetype=mimetype,
-            as_attachment=True,
-            download_name=download_name
-        )
+        print(f"Sending file: {output_path} as {download_name}", flush=True)
+        
+        # Try both parameter names for Flask compatibility
+        try:
+            # Flask 3.x uses download_name
+            return send_file(
+                output_path,
+                mimetype=mimetype,
+                as_attachment=True,
+                download_name=download_name
+            )
+        except TypeError:
+            # Flask 2.x uses attachment_filename
+            return send_file(
+                output_path,
+                mimetype=mimetype,
+                as_attachment=True,
+                attachment_filename=download_name
+            )
         
     except Exception as e:
         print(f"Error in download-offer: {str(e)}", flush=True)
