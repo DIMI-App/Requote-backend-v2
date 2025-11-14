@@ -729,7 +729,10 @@ def api_download_offer():
             mimetype=mimetype,
             headers={
                 'Content-Disposition': f'attachment; filename="{download_name}"',
-                'Content-Type': mimetype
+                'Content-Type': mimetype,
+                'Cache-Control': 'no-cache, no-store, must-revalidate',
+                'Pragma': 'no-cache',
+                'Expires': '0'
             }
         )
         
