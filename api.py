@@ -504,11 +504,12 @@ def api_upload_offer2():
         old_docx = os.path.join(BASE_DIR, 'offer2_template.docx')
         old_xlsx = os.path.join(BASE_DIR, 'offer2_template.xlsx')
         old_xls = os.path.join(BASE_DIR, 'offer2_template.xls')
+        old_format = os.path.join(BASE_DIR, 'template_format.txt')
         
-        for old_file in [old_docx, old_xlsx, old_xls]:
+        for old_file in [old_docx, old_xlsx, old_xls, old_format]:
             if os.path.exists(old_file):
                 os.remove(old_file)
-                print(f"  Removed old template: {old_file}", flush=True)
+                print(f"  Removed old file: {old_file}", flush=True)
         
         # Save template with correct extension
         if file_extension in ['xlsx', 'xls']:
@@ -516,11 +517,20 @@ def api_upload_offer2():
             template_path = os.path.join(BASE_DIR, f'offer2_template.{file_extension}')
             file.save(template_path)
             print(f"✓ XLSX template saved: {template_path}", flush=True)
+            
+            # Save template format info
+            with open(os.path.join(BASE_DIR, 'template_format.txt'), 'w') as f:
+                f.write('xlsx')
+            
         elif file_extension == 'docx':
             # Save DOCX template
             template_path = os.path.join(BASE_DIR, 'offer2_template.docx')
             file.save(template_path)
             print(f"✓ DOCX template saved: {template_path}", flush=True)
+            
+            # Save template format info
+            with open(os.path.join(BASE_DIR, 'template_format.txt'), 'w') as f:
+                f.write('docx')
         else:
             # Other formats - save and try to convert to DOCX
             template_path = os.path.join(BASE_DIR, 'offer2_template.docx')
@@ -591,7 +601,7 @@ def api_generate_offer():
         if not os.path.exists(items_path):
             return jsonify({'error': 'No items found. Please process Offer 1 first.'}), 400
         
-        # Detect template format
+        # Detect which template file exists (only one should exist after cleanup)
         template_docx = os.path.join(BASE_DIR, 'offer2_template.docx')
         template_xlsx = os.path.join(BASE_DIR, 'offer2_template.xlsx')
         template_xls = os.path.join(BASE_DIR, 'offer2_template.xls')
@@ -599,19 +609,23 @@ def api_generate_offer():
         template_path = None
         template_format = None
         
-        if os.path.exists(template_xlsx):
+        # Check all possible template files
+        if os.path.exists(template_docx):
+            template_path = template_docx
+            template_format = 'docx'
+            print(f"✓ Found DOCX template: {template_path}", flush=True)
+        elif os.path.exists(template_xlsx):
             template_path = template_xlsx
             template_format = 'xlsx'
+            print(f"✓ Found XLSX template: {template_path}", flush=True)
         elif os.path.exists(template_xls):
             template_path = template_xls
             template_format = 'xlsx'
-        elif os.path.exists(template_docx):
-            template_path = template_docx
-            template_format = 'docx'
+            print(f"✓ Found XLS template: {template_path}", flush=True)
         else:
             return jsonify({'error': 'No template found. Please upload Offer 2 template first.'}), 400
         
-        print(f"✓ Using {template_format.upper()} template: {template_path}", flush=True)
+        print(f"✓ Will generate {template_format.upper()} output", flush=True)
         
         if markup > 0:
             print(f"Applying {markup}% markup...", flush=True)
