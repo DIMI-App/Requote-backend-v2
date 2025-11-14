@@ -718,23 +718,24 @@ def api_download_offer():
         
         print(f"Sending file: {output_path} as {download_name}", flush=True)
         
-        # Try both parameter names for Flask compatibility
-        try:
-            # Flask 3.x uses download_name
-            return send_file(
-                output_path,
-                mimetype=mimetype,
-                as_attachment=True,
-                download_name=download_name
-            )
-        except TypeError:
-            # Flask 2.x uses attachment_filename
-            return send_file(
-                output_path,
-                mimetype=mimetype,
-                as_attachment=True,
-                attachment_filename=download_name
-            )
+        # Manually create response with explicit headers
+        from flask import Response
+        
+        with open(output_path, 'rb') as f:
+            file_data = f.read()
+        
+        response = Response(
+            file_data,
+            mimetype=mimetype,
+            headers={
+                'Content-Disposition': f'attachment; filename="{download_name}"',
+                'Content-Type': mimetype
+            }
+        )
+        
+        print(f"Response headers: Content-Disposition: attachment; filename=\"{download_name}\"", flush=True)
+        
+        return response
         
     except Exception as e:
         print(f"Error in download-offer: {str(e)}", flush=True)
