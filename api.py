@@ -500,6 +500,16 @@ def api_upload_offer2():
         
         print(f"✓ Template format: {file_extension.upper()}", flush=True)
         
+        # Clean up old template files first
+        old_docx = os.path.join(BASE_DIR, 'offer2_template.docx')
+        old_xlsx = os.path.join(BASE_DIR, 'offer2_template.xlsx')
+        old_xls = os.path.join(BASE_DIR, 'offer2_template.xls')
+        
+        for old_file in [old_docx, old_xlsx, old_xls]:
+            if os.path.exists(old_file):
+                os.remove(old_file)
+                print(f"  Removed old template: {old_file}", flush=True)
+        
         # Save template with correct extension
         if file_extension in ['xlsx', 'xls']:
             # Save Excel template as-is
