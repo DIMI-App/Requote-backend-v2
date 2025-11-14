@@ -617,6 +617,16 @@ def api_generate_offer():
         
         print("Generating final offer...", flush=True)
         
+        # Clean up old output files
+        old_docx = os.path.join(OUTPUT_FOLDER, 'final_offer1.docx')
+        old_xlsx = os.path.join(OUTPUT_FOLDER, 'final_offer1.xlsx')
+        if os.path.exists(old_docx):
+            os.remove(old_docx)
+            print("  Removed old DOCX output", flush=True)
+        if os.path.exists(old_xlsx):
+            os.remove(old_xlsx)
+            print("  Removed old XLSX output", flush=True)
+        
         # Use appropriate generator script based on template format
         if template_format == 'xlsx':
             generate_script_path = os.path.join(BASE_DIR, 'generate_offer_xlsx.py')
