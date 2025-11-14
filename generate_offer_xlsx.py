@@ -2,15 +2,26 @@ import os
 import json
 import openpyxl
 from openpyxl.styles import Font, Alignment
+from collections import OrderedDict
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-OFFER_2_PATH = os.path.join(BASE_DIR, "offer2_template.xlsx")
+OFFER_2_XLSX = os.path.join(BASE_DIR, "offer2_template.xlsx")
+OFFER_2_XLS = os.path.join(BASE_DIR, "offer2_template.xls")
 ITEMS_PATH = os.path.join(BASE_DIR, "outputs", "items_offer1.json")
 OUTPUT_PATH = os.path.join(BASE_DIR, "outputs", "final_offer1.xlsx")
 
 print("=" * 60)
 print("GENERATE OFFER FROM XLSX TEMPLATE")
 print("=" * 60)
+
+# Determine which template exists
+if os.path.exists(OFFER_2_XLSX):
+    OFFER_2_PATH = OFFER_2_XLSX
+elif os.path.exists(OFFER_2_XLS):
+    OFFER_2_PATH = OFFER_2_XLS
+else:
+    print("✗ No XLSX template found")
+    exit(1)
 
 # Load items
 try:
@@ -31,83 +42,131 @@ except Exception as e:
     print(f"✗ Error loading template: {str(e)}")
     exit(1)
 
-# Find the pricing table header row
-table_start_row = None
-for idx, row in enumerate(sheet.iter_rows(min_row=1, max_row=50), start=1):
-    row_text = ' '.join([str(cell.value) if cell.value else '' for cell in row]).upper()
-    if any(keyword in row_text for keyword in ['POSITION', 'DESCRIPTION', 'PRICE', 'QUANTITY', 'TOTAL']):
-        table_start_row = idx
-        print(f"✓ Found pricing table header at row {table_start_row}")
+# Find the pricing table header row and map columns
+table_header_row = None
+col_map = {}
+
+for row_idx in range(1, min(20, sheet.max_row + 1)):
+    row = sheet[row_idx]
+    row_values = [str(cell.value).upper() if cell.value else '' for cell in row]
+    row_text = ' '.join(row_values)
+    
+    if any(kw in row_text for kw in ['POSITION', 'DESCRIPTION', 'PRICE', 'QUANTITY', 'TOTAL']):
+        table_header_row = row_idx
+        print(f"✓ Found pricing table header at row {table_header_row}")
+        
+        # Map columns based on header text
+        for col_idx, cell in enumerate(row, start=1):
+            if not cell.value:
+                continue
+            header_text = str(cell.value).upper()
+            
+            if 'POSITION' in header_text or header_text.strip() == '#':
+                col_map['position'] = col_idx
+            elif 'DESCRIPTION' in header_text:
+                col_map['description'] = col_idx
+            elif 'UNIT' in header_text and 'PRICE' in header_text:
+                col_map['unit_price'] = col_idx
+            elif 'DISCOUNT' in header_text:
+                col_map['discount'] = col_idx
+            elif 'QUANTITY' in header_text or 'QTY' in header_text:
+                col_map['quantity'] = col_idx
+            elif 'TOTAL' in header_text and 'PRICE' in header_text:
+                col_map['total_price'] = col_idx
+        
+        print(f"  Column mapping: {col_map}")
         break
 
-if not table_start_row:
+if not table_header_row:
     print("✗ Could not find pricing table header")
     exit(1)
 
-# Clear existing data rows (keep header)
-data_start_row = table_start_row + 1
-max_row = sheet.max_row
+# Find where data rows start and end
+data_start_row = table_header_row + 1
+data_end_row = sheet.max_row
 
-print(f"Clearing rows {data_start_row} to {max_row}...")
-for row_idx in range(max_row, data_start_row - 1, -1):
-    sheet.delete_rows(row_idx)
+# Find actual end of data (last non-empty row in description column)
+desc_col = col_map.get('description', 2)
+for row_idx in range(sheet.max_row, data_start_row - 1, -1):
+    cell_value = sheet.cell(row_idx, desc_col).value
+    if cell_value and str(cell_value).strip():
+        data_end_row = row_idx
+        break
 
-print(f"✓ Cleared existing data rows")
+print(f"Data rows: {data_start_row} to {data_end_row}")
 
-# Insert items into Excel
-current_row = data_start_row
-item_number = 1
+# Delete existing data rows (keep header and everything below the table)
+rows_to_delete = data_end_row - data_start_row + 1
+if rows_to_delete > 0:
+    sheet.delete_rows(data_start_row, rows_to_delete)
+    print(f"✓ Deleted {rows_to_delete} existing data rows")
 
+# Group items by category
+categorized_items = OrderedDict()
 for item in items:
-    category = item.get('category', '')
-    
-    # Add category row if present
-    if category and (current_row == data_start_row or category != last_category):
-        sheet.insert_rows(current_row)
-        # Merge cells for category (across all columns)
-        first_col = sheet.cell(table_start_row, 1).column
-        last_col = sheet.cell(table_start_row, sheet.max_column).column
-        
-        category_cell = sheet.cell(current_row, 2)  # Usually description column
-        category_cell.value = category
-        category_cell.font = Font(bold=True, size=11)
-        category_cell.alignment = Alignment(horizontal='left')
-        
-        current_row += 1
-        last_category = category
-    
-    # Add item row
+    category = item.get('category', 'Items')
+    if category not in categorized_items:
+        categorized_items[category] = []
+    categorized_items[category].append(item)
+
+print(f"✓ Grouped into {len(categorized_items)} categories")
+
+# Insert items
+current_row = data_start_row
+
+for category, cat_items in categorized_items.items():
+    # Add category header row
     sheet.insert_rows(current_row)
     
-    # Column 1: Item number
-    sheet.cell(current_row, 1).value = str(item_number)
-    item_number += 1
-    
-    # Column 2: Description
-    desc = item.get('item_name', '')
-    if item.get('details'):
-        desc += '\n' + item.get('details')
-    sheet.cell(current_row, 2).value = desc
-    sheet.cell(current_row, 2).alignment = Alignment(wrap_text=True, vertical='top')
-    
-    # Column 3: Unit Price
-    unit_price = item.get('unit_price', '')
-    sheet.cell(current_row, 3).value = unit_price
-    sheet.cell(current_row, 3).alignment = Alignment(horizontal='right')
-    
-    # Column 4: Quantity
-    qty = item.get('quantity', '1')
-    sheet.cell(current_row, 4).value = qty
-    sheet.cell(current_row, 4).alignment = Alignment(horizontal='center')
-    
-    # Column 5: Total Price
-    total_price = item.get('total_price', unit_price)
-    sheet.cell(current_row, 5).value = total_price
-    sheet.cell(current_row, 5).alignment = Alignment(horizontal='right')
+    # Put category name in description column, make it bold
+    desc_col = col_map.get('description', 2)
+    category_cell = sheet.cell(current_row, desc_col)
+    category_cell.value = category
+    category_cell.font = Font(bold=True, size=11)
+    category_cell.alignment = Alignment(horizontal='left')
     
     current_row += 1
-
-last_category = None
+    
+    # Add item rows
+    for idx, item in enumerate(cat_items, start=1):
+        sheet.insert_rows(current_row)
+        
+        # Position number
+        if 'position' in col_map:
+            sheet.cell(current_row, col_map['position']).value = str(idx)
+        
+        # Description
+        if 'description' in col_map:
+            desc = item.get('item_name', '')
+            if item.get('details'):
+                desc += '\n' + item.get('details')
+            desc_cell = sheet.cell(current_row, col_map['description'])
+            desc_cell.value = desc
+            desc_cell.alignment = Alignment(wrap_text=True, vertical='top')
+        
+        # Unit Price
+        if 'unit_price' in col_map:
+            unit_price = item.get('unit_price', '')
+            sheet.cell(current_row, col_map['unit_price']).value = unit_price
+            sheet.cell(current_row, col_map['unit_price']).alignment = Alignment(horizontal='right')
+        
+        # Discount (leave empty)
+        if 'discount' in col_map:
+            sheet.cell(current_row, col_map['discount']).value = ''
+        
+        # Quantity
+        if 'quantity' in col_map:
+            qty = item.get('quantity', '1')
+            sheet.cell(current_row, col_map['quantity']).value = qty
+            sheet.cell(current_row, col_map['quantity']).alignment = Alignment(horizontal='center')
+        
+        # Total Price
+        if 'total_price' in col_map:
+            total = item.get('total_price', item.get('unit_price', ''))
+            sheet.cell(current_row, col_map['total_price']).value = total
+            sheet.cell(current_row, col_map['total_price']).alignment = Alignment(horizontal='right')
+        
+        current_row += 1
 
 print(f"✓ Inserted {len(items)} items into Excel")
 
