@@ -183,11 +183,11 @@ MANDATORY TRANSLATION RULES:
 2. CATEGORY NAMES - Use Professional B2B Terminology:
    Examples for Ukrainian:
    - "Main Equipment" → "Основне технологічне обладнання" (NOT "Основне обладнання")
-   - "Format Changes" → "Комплекти для зміни формату" (NOT "Зміна формату")
+   - "Format Changes" → "Форматні деталі" (NOT "Зміна формату")
    - "Accessories" → "Додаткове обладнання" (NOT "Аксесуари")
    - "Further Options" → "Додаткові опції" (NOT "Подальші варіанти")
    - "Packing" → "Упаковка для транспортування" (NOT just "Упаковка")
-   - "CAN FILLER SANITATION" → "Санітарна обробка наповнювача банок"
+   - "CAN FILLER SANITATION" → "Система санітарної обробки наповнювача банок"
    
    Examples for Spanish:
    - "Main Equipment" → "Equipo principal"
@@ -221,16 +221,16 @@ Input: "Main Equipment"
 Output: "Основне технологічне обладнання"
 
 Input: "CAN FILLER SANITATION\\nSeries of manual closed dummy CANS + washing cam. The cleansing liquid flows throughout the gas evacuation pipes."
-Output: "Санітарна обробка наповнювача банок\\nСерія ручних закритих dummy CANS + промивальний кулачок. Рідина для очищення протікає через gas evacuation pipes."
+Output: "Санітарна обробка наповнювача банок\\nКомплект муляжей закритих банок + промивальний кулачок. Рідина для очищення протікає через трубки відводу газів."
 
 Input: "Equipment for another diameter of can (screw, stars and guides) with SAME LID"
-Output: "Обладнання для іншого діаметра банки (screw, stars and guides) з ТАКОЮ Ж КРИШКОЮ"
+Output: "Форматні деталі для іншого діаметра банки (шнек, зірки та направляючі) з ТАКОЮ Ж КРИШКОЮ"
 
 Input: "Touch-screen panel, colour, multifunction"
 Output: "Сенсорна панель, кольорова, багатофункціональна"
 
 Input: "Set of CO₂ regulators in stainless steel, sanitizable, Teflon tube covered in inox, pipes"
-Output: "Набір регуляторів CO₂ з нержавіючої сталі, санітарний, тефлонова трубка в покритті з нержавіючої сталі, труби"
+Output: "Набір регуляторів CO₂ з нержавіючої сталі, підходить для санітизації, тефлонова трубка з покриттям з нержавіючої сталі, труби"
 
 CRITICAL: Maintain exact JSON structure in your response. Translate category, item_name, and details fields only. Keep all other fields unchanged."""
 
