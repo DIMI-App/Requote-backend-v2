@@ -14,7 +14,7 @@ os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
 def extract_items_from_pdf(pdf_path, output_path):
     try:
-        print("=== STARTING EXTRACTION ===", flush=True)
+        print("=== STARTING ENHANCED EXTRACTION (Prices + Technical Descriptions) ===", flush=True)
         
         if not openai.api_key:
             print("ERROR: OPENAI_API_KEY not set", flush=True)
@@ -49,57 +49,92 @@ def extract_items_from_pdf(pdf_path, output_path):
         doc.close()
         print("All pages converted", flush=True)
         
-        print("Building OpenAI request...", flush=True)
+        print("Building OpenAI request for DUAL extraction (prices + technical content)...", flush=True)
         
         content = [
-            {"type": "text", "text": """Extract EVERY item with a price or marked "Included" from this quotation.
+            {"type": "text", "text": """Extract BOTH pricing items AND technical descriptions from this quotation document.
 
 CRITICAL RULES:
 1. Extract from ALL PAGES - scan entire document
-2. Extract items from these sections:
+2. Extract TWO types of content:
+
+=== PART A: PRICED ITEMS ===
+Extract items from these sections:
    - Main equipment/machinery
    - Economic Offer table (main pricing table)
    - Format Changes
    - Accessories sections
    - Further Options
    - Packing options
-3. For each item, capture:
-   - Category/section name (e.g., "FORMAT CHANGES", "ACCESSORIES", "CAN FILLER SANITATION")
-   - Item description (full text)
-   - Quantity (default "1" if not shown)
-   - Unit price - Use ONE of these THREE states:
-     * Numeric price: "€324.400,00" or "15.400,00" (keep exact format with dots/commas)
-     * Included: "Included" (when text says "Included" or price is 0)
-     * To be quoted: "On request" (when text says "Can be offered", "To be quoted", "Please inquire", "On request", or similar)
-   - Total price (same format as unit price)
-4. NEVER mark "Can be offered" or "To be quoted" items as "Included" - use "On request" instead
-5. Preserve thousand separators exactly as shown (€324.400,00 or €15.400,00)
-6. Continue extracting until you see "GENERAL SALE TERMS" or end of document
 
-Return ONLY JSON array:
-[{
-  "category": "Main Equipment",
-  "item_name": "CAN ISO 20/2 S - clock wisely running direction",
-  "quantity": "1",
-  "unit_price": "€324.400,00",
-  "total_price": "€324.400,00",
-  "details": "Based on one size of 0,33L standard aluminium can including Rolls kit 1st and 2nd operation + chuck in stainless steel"
-},
+For each item, capture:
+   - category: Section name (e.g., "Main Equipment", "ACCESSORIES", "FORMAT CHANGES")
+   - item_name: Item description (full text)
+   - quantity: Quantity (default "1" if not shown)
+   - unit_price: Use ONE of these THREE states:
+     * Numeric price: "€324.400,00" (keep exact format with dots/commas)
+     * Included: "Included" (when text says "Included" or price is 0)
+     * To be quoted: "On request" (when text says "Can be offered", "To be quoted", etc.)
+   - total_price: Same format as unit_price
+   - details: Technical specifications, model numbers, features
+
+=== PART B: TECHNICAL DESCRIPTIONS ===
+Extract all technical content that is NOT in pricing tables:
+   - Product overview/introduction paragraphs
+   - Feature descriptions (e.g., "Features of the rinsing turret")
+   - Technical specification sections
+   - Operation descriptions
+   - Equipment capabilities
+   - Configuration details
+   - Installation requirements
+   - Material specifications
+   - Performance characteristics
+
+For each technical section:
+   - section_title: Title or heading of the section
+   - content_type: "paragraph" | "bullet_list" | "spec_table" | "features"
+   - content: Full text content
+   - page_location: "before_price_table" | "after_price_table" | "between_items"
+
+IMPORTANT:
+- Extract technical content that appears OUTSIDE of pricing tables
+- Include product descriptions, feature lists, specifications
+- Preserve paragraph structure and formatting
+- Include bullet points as they appear
+- Continue extracting until you see "GENERAL SALE TERMS" or end of document
+
+Return ONLY JSON:
 {
-  "category": "ACCESSORIES",
-  "item_name": "FEEDING PUMP",
-  "quantity": "1",
-  "unit_price": "On request",
-  "total_price": "On request",
-  "details": "Can be offered according with the product to be filled"
-}]
+  "items": [
+    {
+      "category": "Main Equipment",
+      "item_name": "CAN ISO 20/2 S",
+      "quantity": "1",
+      "unit_price": "€324.400,00",
+      "total_price": "€324.400,00",
+      "details": "Based on 0,33L standard aluminium can"
+    }
+  ],
+  "technical_sections": [
+    {
+      "section_title": "Features of the rinsing turret",
+      "content_type": "features",
+      "content": "The rinsing turret is equipped with...",
+      "page_location": "before_price_table"
+    },
+    {
+      "section_title": "Technical Specifications",
+      "content_type": "spec_table",
+      "content": "Production capacity: 12,000 bph\\nPower: 15 kW\\nDimensions: 2500x1800x2200 mm",
+      "page_location": "after_price_table"
+    }
+  ]
+}
 
 PRICE STATE EXAMPLES:
 - "€324.400,00" → unit_price: "€324.400,00"
 - "Included" → unit_price: "Included"
-- "Can be offered according..." → unit_price: "On request"
-- "To be quoted" → unit_price: "On request"
-- "Please inquire" → unit_price: "On request"
+- "Can be offered" → unit_price: "On request"
 """}
         ]
         
@@ -111,7 +146,7 @@ PRICE STATE EXAMPLES:
         response = openai.ChatCompletion.create(
             model="gpt-4o",
             messages=[{"role": "user", "content": content}],
-            max_tokens=6000,
+            max_tokens=8000,
             temperature=0
         )
         
@@ -125,13 +160,21 @@ PRICE STATE EXAMPLES:
             extracted_json = extracted_json.replace("```", "").strip()
         
         print("Parsing JSON...", flush=True)
-        items = json.loads(extracted_json)
+        full_data = json.loads(extracted_json)
+        
+        items = full_data.get("items", [])
+        technical_sections = full_data.get("technical_sections", [])
         
         print(f"Extracted {len(items)} items", flush=True)
+        print(f"Extracted {len(technical_sections)} technical sections", flush=True)
         
         if len(items) == 0:
-            print("ERROR: No items extracted", flush=True)
-            return False
+            print("WARNING: No items extracted", flush=True)
+        
+        if len(technical_sections) > 0:
+            print(f"Technical sections found:", flush=True)
+            for section in technical_sections[:3]:
+                print(f"  - {section.get('section_title', 'Untitled')}: {section.get('content_type', 'unknown')}", flush=True)
         
         # Group items by category
         categories = {}
@@ -147,8 +190,15 @@ PRICE STATE EXAMPLES:
         
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
         
+        # Save full data with both items and technical sections
+        output_data = {
+            "items": items,
+            "technical_sections": technical_sections,
+            "categories": list(categories.keys())
+        }
+        
         with open(output_path, 'w', encoding='utf-8') as f:
-            json.dump({"items": items, "categories": list(categories.keys())}, f, indent=2, ensure_ascii=False)
+            json.dump(output_data, f, indent=2, ensure_ascii=False)
         
         print(f"Saved to {output_path}", flush=True)
         print("=== EXTRACTION COMPLETED ===", flush=True)

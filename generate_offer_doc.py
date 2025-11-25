@@ -157,7 +157,6 @@ def translate_items_with_context(items, target_lang, context):
     glossary_items = context.get('technical_glossary', [])[:20]
     glossary_text = "\n- ".join(glossary_items) if glossary_items else "None specified"
     
-    # Enhanced system prompt with examples
     system_prompt = f"""You are an expert technical translator specializing in industrial equipment quotations for the {context.get('industry', 'manufacturing')} industry.
 
 DOCUMENT CONTEXT:
@@ -215,28 +214,11 @@ MANDATORY TRANSLATION RULES:
    - Technical accuracy over literal translation
    - Preserve all numbers, measurements, and units exactly
 
-EXAMPLES OF CORRECT TRANSLATION TO UKRAINIAN:
-
-Input: "Main Equipment"
-Output: "Основне технологічне обладнання"
-
-Input: "CAN FILLER SANITATION\\nSeries of manual closed dummy CANS + washing cam. The cleansing liquid flows throughout the gas evacuation pipes."
-Output: "Санітарна обробка наповнювача банок\\nСерія ручних закритих dummy CANS + промивальний кулачок. Рідина для очищення протікає через gas evacuation pipes."
-
-Input: "Equipment for another diameter of can (screw, stars and guides) with SAME LID"
-Output: "Обладнання для іншого діаметра банки (screw, stars and guides) з ТАКОЮ Ж КРИШКОЮ"
-
-Input: "Touch-screen panel, colour, multifunction"
-Output: "Сенсорна панель, кольорова, багатофункціональна"
-
-Input: "Set of CO₂ regulators in stainless steel, sanitizable, Teflon tube covered in inox, pipes"
-Output: "Набір регуляторів CO₂ з нержавіючої сталі, санітарний, тефлонова трубка в покритті з нержавіючої сталі, труби"
-
 CRITICAL: Maintain exact JSON structure in your response. Translate category, item_name, and details fields only. Keep all other fields unchanged."""
 
     try:
         translated_items = []
-        batch_size = 6  # Smaller batches for better quality
+        batch_size = 6
         
         for i in range(0, len(items), batch_size):
             batch = items[i:i+batch_size]
@@ -265,7 +247,7 @@ Output (translated JSON with same structure):"""
                     {"role": "user", "content": user_prompt}
                 ],
                 max_tokens=4500,
-                temperature=0.15  # Lower for more consistent terminology
+                temperature=0.15
             )
             
             batch_json = response.choices[0].message.content.strip()
@@ -305,6 +287,78 @@ def translate_items(items, target_lang):
     
     context = analyze_document_context(items)
     return translate_items_with_context(items, target_lang, context)
+
+def translate_technical_sections(sections, target_lang, context):
+    """Translate technical sections with context"""
+    if target_lang == 'EN' or target_lang == 'EN-US':
+        return sections
+    
+    print(f"Translating {len(sections)} technical sections to {target_lang}...", flush=True)
+    
+    lang_map = {
+        'UK': 'Ukrainian (Українська)',
+        'RU': 'Russian (Русский)',
+        'ES': 'Spanish (Español)',
+        'DE': 'German (Deutsch)',
+        'FR': 'French (Français)',
+        'IT': 'Italian (Italiano)'
+    }
+    
+    target_language_name = lang_map.get(target_lang, target_lang)
+    glossary_items = context.get('technical_glossary', [])[:20]
+    glossary_text = "\n- ".join(glossary_items) if glossary_items else "None specified"
+    
+    try:
+        translated_sections = []
+        
+        for section in sections:
+            prompt = f"""Translate this technical description to {target_language_name}.
+
+CONTEXT:
+- Industry: {context.get('industry', 'Industrial Equipment')}
+- Product: {context.get('product_category', 'Machinery')}
+
+RULES:
+- Preserve technical terms, model numbers, specifications
+- DO NOT translate these terms: {glossary_text}
+- Maintain professional business language
+- Keep numerical values unchanged
+- Translate naturally for B2B audience
+
+Original:
+Title: {section.get('section_title', '')}
+Content: {section.get('content', '')}
+
+Return ONLY JSON:
+{{
+  "section_title": "translated title",
+  "content": "translated content"
+}}"""
+            
+            response = openai.ChatCompletion.create(
+                model="gpt-4o",
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=2000,
+                temperature=0.2
+            )
+            
+            result_json = response.choices[0].message.content.strip()
+            if result_json.startswith("```"):
+                result_json = result_json.replace("```json", "").replace("```", "").strip()
+            
+            translated = json.loads(result_json)
+            
+            new_section = section.copy()
+            new_section['section_title'] = translated.get('section_title', section.get('section_title', ''))
+            new_section['content'] = translated.get('content', section.get('content', ''))
+            translated_sections.append(new_section)
+        
+        print(f"✓ Translated {len(translated_sections)} sections", flush=True)
+        return translated_sections
+        
+    except Exception as e:
+        print(f"✗ Section translation failed: {str(e)}", flush=True)
+        return sections
 
 def get_cell_background_color(cell):
     """Extract background color from cell"""
@@ -530,26 +584,110 @@ def format_price(price_str, format_info):
     except:
         return price_str
 
+def insert_technical_sections(doc, technical_sections, target_language, template_style, context):
+    """Insert technical description sections into document"""
+    if not technical_sections or len(technical_sections) == 0:
+        print("No technical sections to insert", flush=True)
+        return
+    
+    print("=" * 60, flush=True)
+    print(f"INSERTING {len(technical_sections)} TECHNICAL SECTIONS", flush=True)
+    print("=" * 60, flush=True)
+    
+    # Find where to insert: before the first table
+    first_table_index = None
+    for idx, element in enumerate(doc.element.body):
+        if element.tag.endswith('tbl'):
+            first_table_index = idx
+            break
+    
+    if first_table_index is None:
+        print("No table found, inserting at end", flush=True)
+    else:
+        print(f"Found first table at position {first_table_index}", flush=True)
+    
+    # Translate technical sections if needed
+    if target_language != 'EN':
+        print(f"Translating technical sections to {target_language}...", flush=True)
+        technical_sections = translate_technical_sections(technical_sections, target_language, context)
+    
+    # Insert sections before the pricing table
+    sections_inserted = 0
+    for section in technical_sections:
+        location = section.get('page_location', '')
+        
+        # Only insert sections that should appear before price table
+        if location == 'before_price_table' or location == '':
+            content_type = section.get('content_type', 'paragraph')
+            title = section.get('section_title', '')
+            content = section.get('content', '')
+            
+            if not content:
+                continue
+            
+            # Add section title as heading
+            if title:
+                heading = doc.add_paragraph(title)
+                heading.style = 'Heading 2'
+                for run in heading.runs:
+                    run.font.bold = True
+                    run.font.size = Pt(template_style.get('header_font_size', 12))
+                    if template_style.get('primary_font'):
+                        run.font.name = template_style['primary_font']
+            
+            # Add content based on type
+            if content_type == 'bullet_list':
+                # Split by newlines and add as bullet points
+                lines = content.split('\n')
+                for line in lines:
+                    if line.strip():
+                        p = doc.add_paragraph(line.strip(), style='List Bullet')
+                        for run in p.runs:
+                            run.font.size = Pt(template_style.get('body_font_size', 10))
+                            if template_style.get('primary_font'):
+                                run.font.name = template_style['primary_font']
+            else:
+                # Add as normal paragraph(s)
+                paragraphs = content.split('\n\n')
+                for para_text in paragraphs:
+                    if para_text.strip():
+                        p = doc.add_paragraph(para_text.strip())
+                        for run in p.runs:
+                            run.font.size = Pt(template_style.get('body_font_size', 10))
+                            if template_style.get('primary_font'):
+                                run.font.name = template_style['primary_font']
+            
+            # Add spacing after section
+            doc.add_paragraph()
+            sections_inserted += 1
+            print(f"  ✓ Inserted: {title or 'Untitled section'}", flush=True)
+    
+    print(f"✓ Inserted {sections_inserted} technical sections", flush=True)
+    print("=" * 60, flush=True)
+
 # MAIN EXECUTION
 print("=" * 60, flush=True)
-print("GENERATE OFFER - SV13.1 Enhanced Context Translation", flush=True)
+print("GENERATE OFFER - SV14 Enhanced with Technical Descriptions", flush=True)
 print("=" * 60, flush=True)
 
-# Load items
+# Load items AND technical sections
 try:
-    print(f"Loading items from: {ITEMS_PATH}", flush=True)
+    print(f"Loading data from: {ITEMS_PATH}", flush=True)
     with open(ITEMS_PATH, "r", encoding="utf-8") as f:
         full_data = json.load(f)
     
     items = full_data.get("items", [])
+    technical_sections = full_data.get("technical_sections", [])
+    
     print(f"✓ Loaded {len(items)} items", flush=True)
+    print(f"✓ Loaded {len(technical_sections)} technical sections", flush=True)
     
     if len(items) == 0:
         print("✗ No items found", flush=True)
         exit(1)
 
 except Exception as e:
-    print(f"✗ Error loading items: {str(e)}", flush=True)
+    print(f"✗ Error loading data: {str(e)}", flush=True)
     exit(1)
 
 # Load template
@@ -568,11 +706,17 @@ if len(doc.tables) == 0:
 # Detect template language
 target_language = detect_template_language(doc)
 
-# Translate items with enhanced context analysis
-items = translate_items(items, target_language)
+# Analyze document context (for translation glossary)
+context = analyze_document_context(items)
 
 # Analyze template style
 template_style = analyze_template_style(doc)
+
+# Insert technical sections BEFORE pricing table
+insert_technical_sections(doc, technical_sections, target_language, template_style, context)
+
+# Translate items with enhanced context analysis
+items = translate_items(items, target_language)
 
 # Find pricing table
 best_table = None

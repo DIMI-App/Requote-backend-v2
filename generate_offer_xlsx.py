@@ -3,6 +3,9 @@ import json
 import openpyxl
 from openpyxl.styles import Font, Alignment
 from collections import OrderedDict
+import openai
+
+openai.api_key = os.environ.get('OPENAI_API_KEY')
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 OFFER_2_XLSX = os.path.join(BASE_DIR, "offer2_template.xlsx")
@@ -11,7 +14,7 @@ ITEMS_PATH = os.path.join(BASE_DIR, "outputs", "items_offer1.json")
 OUTPUT_PATH = os.path.join(BASE_DIR, "outputs", "final_offer1.xlsx")
 
 print("=" * 60)
-print("GENERATE OFFER FROM XLSX TEMPLATE")
+print("GENERATE OFFER FROM XLSX - SV14 with Technical Sections")
 print("=" * 60)
 
 # Determine which template exists
@@ -23,14 +26,16 @@ else:
     print("✗ No XLSX template found")
     exit(1)
 
-# Load items
+# Load items AND technical sections
 try:
     with open(ITEMS_PATH, "r", encoding="utf-8") as f:
         full_data = json.load(f)
     items = full_data.get("items", [])
+    technical_sections = full_data.get("technical_sections", [])
     print(f"✓ Loaded {len(items)} items")
+    print(f"✓ Loaded {len(technical_sections)} technical sections")
 except Exception as e:
-    print(f"✗ Error loading items: {str(e)}")
+    print(f"✗ Error loading data: {str(e)}")
     exit(1)
 
 # Load Excel template
@@ -42,11 +47,90 @@ except Exception as e:
     print(f"✗ Error loading template: {str(e)}")
     exit(1)
 
-# Find the pricing table header row and map columns
+# Insert technical sections before pricing table
+if technical_sections and len(technical_sections) > 0:
+    print(f"=" * 60)
+    print(f"INSERTING {len(technical_sections)} TECHNICAL SECTIONS")
+    print(f"=" * 60)
+    
+    # Find the pricing table header row
+    table_header_row = None
+    for row_idx in range(1, min(20, sheet.max_row + 1)):
+        row = sheet[row_idx]
+        row_values = [str(cell.value).upper() if cell.value else '' for cell in row]
+        row_text = ' '.join(row_values)
+        
+        if any(kw in row_text for kw in ['POSITION', 'DESCRIPTION', 'PRICE', 'QUANTITY', 'TOTAL']):
+            table_header_row = row_idx
+            print(f"✓ Found pricing table header at row {table_header_row}")
+            break
+    
+    if table_header_row:
+        # Insert technical sections BEFORE the pricing table
+        current_row = table_header_row
+        sections_inserted = 0
+        
+        for section in technical_sections:
+            location = section.get('page_location', '')
+            
+            # Only insert sections that should appear before price table
+            if location == 'before_price_table' or location == '':
+                title = section.get('section_title', '')
+                content = section.get('content', '')
+                content_type = section.get('content_type', 'paragraph')
+                
+                if not content:
+                    continue
+                
+                # Insert blank row
+                sheet.insert_rows(current_row)
+                
+                # Add section title
+                if title:
+                    title_cell = sheet.cell(current_row, 1)
+                    title_cell.value = title
+                    title_cell.font = Font(bold=True, size=12)
+                    current_row += 1
+                    sheet.insert_rows(current_row)
+                
+                # Add content
+                if content_type == 'bullet_list':
+                    # Split into bullet points
+                    lines = content.split('\n')
+                    for line in lines:
+                        if line.strip():
+                            sheet.insert_rows(current_row)
+                            content_cell = sheet.cell(current_row, 1)
+                            content_cell.value = f"• {line.strip()}"
+                            content_cell.font = Font(size=10)
+                            current_row += 1
+                else:
+                    # Add as paragraphs
+                    paragraphs = content.split('\n\n')
+                    for para in paragraphs:
+                        if para.strip():
+                            sheet.insert_rows(current_row)
+                            content_cell = sheet.cell(current_row, 1)
+                            content_cell.value = para.strip()
+                            content_cell.font = Font(size=10)
+                            content_cell.alignment = Alignment(wrap_text=True)
+                            current_row += 1
+                
+                # Add blank row after section
+                sheet.insert_rows(current_row)
+                current_row += 1
+                
+                sections_inserted += 1
+                print(f"  ✓ Inserted: {title or 'Untitled section'}")
+        
+        print(f"✓ Inserted {sections_inserted} technical sections")
+        print(f"=" * 60)
+
+# Find the pricing table header row and map columns (AFTER insertions)
 table_header_row = None
 col_map = {}
 
-for row_idx in range(1, min(20, sheet.max_row + 1)):
+for row_idx in range(1, min(50, sheet.max_row + 1)):
     row = sheet[row_idx]
     row_values = [str(cell.value).upper() if cell.value else '' for cell in row]
     row_text = ' '.join(row_values)
