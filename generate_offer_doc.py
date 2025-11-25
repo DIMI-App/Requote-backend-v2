@@ -157,6 +157,7 @@ def translate_items_with_context(items, target_lang, context):
     glossary_items = context.get('technical_glossary', [])[:20]
     glossary_text = "\n- ".join(glossary_items) if glossary_items else "None specified"
     
+    # Enhanced system prompt with examples
     system_prompt = f"""You are an expert technical translator specializing in industrial equipment quotations for the {context.get('industry', 'manufacturing')} industry.
 
 DOCUMENT CONTEXT:
@@ -214,11 +215,28 @@ MANDATORY TRANSLATION RULES:
    - Technical accuracy over literal translation
    - Preserve all numbers, measurements, and units exactly
 
+EXAMPLES OF CORRECT TRANSLATION TO UKRAINIAN:
+
+Input: "Main Equipment"
+Output: "Основне технологічне обладнання"
+
+Input: "CAN FILLER SANITATION\\nSeries of manual closed dummy CANS + washing cam. The cleansing liquid flows throughout the gas evacuation pipes."
+Output: "Санітарна обробка наповнювача банок\\nСерія ручних закритих dummy CANS + промивальний кулачок. Рідина для очищення протікає через gas evacuation pipes."
+
+Input: "Equipment for another diameter of can (screw, stars and guides) with SAME LID"
+Output: "Обладнання для іншого діаметра банки (screw, stars and guides) з ТАКОЮ Ж КРИШКОЮ"
+
+Input: "Touch-screen panel, colour, multifunction"
+Output: "Сенсорна панель, кольорова, багатофункціональна"
+
+Input: "Set of CO₂ regulators in stainless steel, sanitizable, Teflon tube covered in inox, pipes"
+Output: "Набір регуляторів CO₂ з нержавіючої сталі, санітарний, тефлонова трубка в покритті з нержавіючої сталі, труби"
+
 CRITICAL: Maintain exact JSON structure in your response. Translate category, item_name, and details fields only. Keep all other fields unchanged."""
 
     try:
         translated_items = []
-        batch_size = 6
+        batch_size = 6  # Smaller batches for better quality
         
         for i in range(0, len(items), batch_size):
             batch = items[i:i+batch_size]
@@ -247,7 +265,7 @@ Output (translated JSON with same structure):"""
                     {"role": "user", "content": user_prompt}
                 ],
                 max_tokens=4500,
-                temperature=0.15
+                temperature=0.15  # Lower for more consistent terminology
             )
             
             batch_json = response.choices[0].message.content.strip()
@@ -667,7 +685,7 @@ def insert_technical_sections(doc, technical_sections, target_language, template
 
 # MAIN EXECUTION
 print("=" * 60, flush=True)
-print("GENERATE OFFER - SV14 Enhanced with Technical Descriptions", flush=True)
+print("GENERATE OFFER - SV12 Enhanced Extraction with Technical Sections", flush=True)
 print("=" * 60, flush=True)
 
 # Load items AND technical sections
@@ -681,6 +699,16 @@ try:
     
     print(f"✓ Loaded {len(items)} items", flush=True)
     print(f"✓ Loaded {len(technical_sections)} technical sections", flush=True)
+    
+    # Log SV12 enhanced data if available
+    if "extraction_version" in full_data:
+        print(f"✓ Extraction version: {full_data.get('extraction_version')}", flush=True)
+    if "quality_metrics" in full_data:
+        metrics = full_data["quality_metrics"]
+        print(f"✓ Quality metrics:", flush=True)
+        print(f"  - Description coverage: {metrics.get('description_coverage_percent', 0)}%", flush=True)
+        print(f"  - Specifications coverage: {metrics.get('specifications_coverage_percent', 0)}%", flush=True)
+        print(f"  - Images detected: {metrics.get('image_detection_percent', 0)}%", flush=True)
     
     if len(items) == 0:
         print("✗ No items found", flush=True)
@@ -712,8 +740,9 @@ context = analyze_document_context(items)
 # Analyze template style
 template_style = analyze_template_style(doc)
 
-# Insert technical sections BEFORE pricing table
-insert_technical_sections(doc, technical_sections, target_language, template_style, context)
+# Insert technical sections BEFORE pricing table (if they exist)
+if technical_sections and len(technical_sections) > 0:
+    insert_technical_sections(doc, technical_sections, target_language, template_style, context)
 
 # Translate items with enhanced context analysis
 items = translate_items(items, target_language)
@@ -778,10 +807,32 @@ for category, cat_items in categorized_items.items():
                 item_counter += 1
             
             if len(row) >= 2:
-                desc = item.get("item_name", "")
+                # BUILD COMPLETE DESCRIPTION FROM ALL FIELDS (SV12 Enhancement)
+                desc_parts = []
+                
+                # 1. Item name (always included)
+                desc_parts.append(item.get("item_name", ""))
+                
+                # 2. Full technical description (NEW - main enhancement)
+                if item.get("description"):
+                    desc_parts.append(item.get("description"))
+                
+                # 3. Technical specifications (NEW)
+                if item.get("specifications"):
+                    desc_parts.append(f"Specifications: {item.get('specifications')}")
+                
+                # 4. Image description (NEW)
+                if item.get("has_image") and item.get("image_description"):
+                    desc_parts.append(f"[Image: {item.get('image_description')}]")
+                
+                # 5. Additional details (legacy field, keep for compatibility)
                 if item.get("details"):
-                    desc = f"{desc}\n{item.get('details')}"
-                apply_text_style(row[1], desc, False, template_style)
+                    desc_parts.append(item.get("details"))
+                
+                # Combine all parts with double newline separator
+                full_description = "\n\n".join(desc_parts)
+                
+                apply_text_style(row[1], full_description, False, template_style)
             
             if len(row) >= 3:
                 price = format_price(item.get("unit_price", ""), number_format)
@@ -798,7 +849,7 @@ for category, cat_items in categorized_items.items():
             print(f"  ✗ Error on item: {str(e)}", flush=True)
             continue
 
-print(f"✓ Inserted all items with template styling", flush=True)
+print(f"✓ Inserted all items with enhanced descriptions (SV12)", flush=True)
 
 # Save document
 try:
