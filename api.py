@@ -322,7 +322,7 @@ def process_file_background(filepath, file_extension):
             processing_status['updated_at'] = time.time()
         
         items_output_path = os.path.join(OUTPUT_FOLDER, 'items_offer1.json')
-        extract_script_path = os.path.join(BASE_DIR, 'extract_pdf_direct.py')
+        extract_script_path = os.path.join(BASE_DIR, 'extract_pdf_direct_enhanced.py')
         
         print("Starting extraction subprocess...", flush=True)
         

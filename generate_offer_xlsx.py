@@ -221,11 +221,26 @@ for category, cat_items in categorized_items.items():
         
         # Description
         if 'description' in col_map:
-            desc = item.get('item_name', '')
+            # BUILD COMPLETE DESCRIPTION (SV12)
+            desc_parts = []
+            desc_parts.append(item.get('item_name', ''))
+            
+            if item.get('description'):
+                desc_parts.append(item.get('description'))
+            
+            if item.get('specifications'):
+                desc_parts.append(f"Specifications: {item.get('specifications')}")
+            
+            if item.get('has_image') and item.get('image_description'):
+                desc_parts.append(f"[Image: {item.get('image_description')}]")
+            
             if item.get('details'):
-                desc += '\n' + item.get('details')
+                desc_parts.append(item.get('details'))
+            
+            full_description = '\n\n'.join(desc_parts)
+            
             desc_cell = sheet.cell(current_row, col_map['description'])
-            desc_cell.value = desc
+            desc_cell.value = full_description
             desc_cell.alignment = Alignment(wrap_text=True, vertical='top')
         
         # Unit Price
