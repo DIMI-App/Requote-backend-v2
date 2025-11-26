@@ -471,7 +471,15 @@ def execute_recomposition_docx(template_path, extraction_data, recomposition_pla
                         if headers and rows:
                             # Create table
                             spec_table = doc.add_table(rows=1 + len(rows), cols=len(headers))
-                            spec_table.style = 'Light Grid Accent 1'
+                            
+                            # Try to apply a style, but don't fail if it doesn't exist
+                            try:
+                                spec_table.style = 'Light Grid Accent 1'
+                            except:
+                                try:
+                                    spec_table.style = 'Table Grid'
+                                except:
+                                    pass  # Use default style
                             
                             # Headers
                             for i, header in enumerate(headers):
@@ -480,11 +488,17 @@ def execute_recomposition_docx(template_path, extraction_data, recomposition_pla
                                 for para in cell.paragraphs:
                                     for run in para.runs:
                                         run.font.bold = True
+                                        run.font.size = Pt(10)
                             
                             # Data rows
                             for row_idx, row_data in enumerate(rows):
                                 for col_idx, cell_data in enumerate(row_data):
-                                    spec_table.rows[row_idx + 1].cells[col_idx].text = str(cell_data)
+                                    cell = spec_table.rows[row_idx + 1].cells[col_idx]
+                                    cell.text = str(cell_data)
+                                    # Make text smaller
+                                    for para in cell.paragraphs:
+                                        for run in para.runs:
+                                            run.font.size = Pt(9)
                             
                             table_parent.insert(table_index, spec_table._element)
                             table_index += 1
