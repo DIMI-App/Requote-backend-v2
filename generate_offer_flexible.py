@@ -17,7 +17,7 @@ OUTPUT_FOLDER = os.path.join(BASE_DIR, 'outputs')
 ITEMS_PATH = os.path.join(OUTPUT_FOLDER, "items_offer1.json")
 TEMPLATE_STRUCTURE_PATH = os.path.join(OUTPUT_FOLDER, "template_structure.json")
 
-# REVISED PROMPT 3: INTELLIGENT DOCUMENT RECOMPOSITION
+# REVISED PROMPT 3: INTELLIGENT DOCUMENT RECOMPOSITION  
 RECOMPOSITION_PROMPT = """You are an expert sales manager who needs to rebrand a supplier's quotation into your company's format.
 
 **YOUR TASK:**
@@ -331,15 +331,117 @@ def get_recomposition_plan(extraction_data, template_structure):
         return None
 
 def execute_recomposition_docx(template_path, extraction_data, recomposition_plan, output_path):
-    """Execute the recomposition plan to create final DOCX"""
+    """Execute recomposition - PROPERLY CLEAR OFFER 2 CONTENT AND INSERT OFFER 1 TECHNICAL CONTENT"""
     try:
         print("=" * 60, flush=True)
-        print("EXECUTING RECOMPOSITION PLAN", flush=True)
+        print("EXECUTING DOCUMENT RECOMPOSITION", flush=True)
         print("=" * 60, flush=True)
         
         doc = Document(template_path)
         
-        # Find pricing table (still need to fill it)
+        # STEP 1: AGGRESSIVE CLEANUP - Remove ALL content except company header
+        print("STEP 1: Clearing Offer 2 template content...", flush=True)
+        
+        # Find first table position
+        first_table_index = None
+        for i, element in enumerate(doc.element.body):
+            if element.tag.endswith('tbl'):
+                first_table_index = i
+                break
+        
+        if first_table_index:
+            # Keep only first 2-3 paragraphs (company header/logo)
+            paragraphs_to_keep = 3
+            
+            # Remove all paragraphs between header and first table
+            para_count = 0
+            elements_to_remove = []
+            
+            for i, element in enumerate(doc.element.body):
+                if element.tag.endswith('p'):
+                    para_count += 1
+                    if para_count > paragraphs_to_keep and i < first_table_index:
+                        elements_to_remove.append(element)
+            
+            for element in elements_to_remove:
+                element.getparent().remove(element)
+            
+            print(f"  ✓ Removed {len(elements_to_remove)} template paragraphs", flush=True)
+        
+        # STEP 2: INSERT TECHNICAL CONTENT FROM OFFER 1 BEFORE PRICING TABLE
+        print("STEP 2: Inserting technical content from Offer 1...", flush=True)
+        
+        technical_sections = extraction_data.get('technical_sections', [])
+        
+        if technical_sections and len(technical_sections) > 0:
+            # Find table to insert before
+            pricing_table = None
+            for table in doc.tables:
+                if len(table.rows) > 1 and len(table.columns) >= 3:
+                    pricing_table = table
+                    break
+            
+            if pricing_table:
+                table_element = pricing_table._element
+                table_parent = table_element.getparent()
+                table_index = list(table_parent).index(table_element)
+                
+                sections_inserted = 0
+                
+                for section in technical_sections:
+                    title = section.get('section_title', '') or section.get('title', '')
+                    content = section.get('content', '')
+                    content_type = section.get('type', 'text_paragraph')
+                    
+                    if not content:
+                        continue
+                    
+                    # Spacing
+                    space_para = doc.add_paragraph()
+                    table_parent.insert(table_index, space_para._element)
+                    table_index += 1
+                    
+                    # Title
+                    if title:
+                        title_para = doc.add_paragraph()
+                        title_run = title_para.add_run(title)
+                        title_run.font.bold = True
+                        title_run.font.size = Pt(12)
+                        table_parent.insert(table_index, title_para._element)
+                        table_index += 1
+                    
+                    # Content
+                    if content_type == 'bullet_list':
+                        lines = content if isinstance(content, list) else content.split('\n')
+                        for line in lines:
+                            if line.strip():
+                                bullet_para = doc.add_paragraph(line.strip(), style='List Bullet')
+                                table_parent.insert(table_index, bullet_para._element)
+                                table_index += 1
+                    else:
+                        paragraphs = [content] if isinstance(content, str) else content
+                        if isinstance(content, str):
+                            paragraphs = content.split('\n\n')
+                        
+                        for para_text in paragraphs:
+                            if para_text.strip():
+                                content_para = doc.add_paragraph(para_text.strip())
+                                for run in content_para.runs:
+                                    run.font.size = Pt(11)
+                                table_parent.insert(table_index, content_para._element)
+                                table_index += 1
+                    
+                    sections_inserted += 1
+                
+                print(f"  ✓ Inserted {sections_inserted} technical sections from Offer 1", flush=True)
+            else:
+                print("  ⚠ Could not find pricing table to insert before", flush=True)
+        else:
+            print("  ⚠ No technical sections in Offer 1 extraction", flush=True)
+        
+        # STEP 3: CLEAR AND FILL PRICING TABLE
+        print("STEP 3: Filling pricing table...", flush=True)
+        
         pricing_table = None
         for table in doc.tables:
             if len(table.rows) > 1 and len(table.columns) >= 3:
@@ -347,32 +449,20 @@ def execute_recomposition_docx(template_path, extraction_data, recomposition_pla
                 break
         
         if not pricing_table:
-            print("WARNING: No pricing table found, creating basic document", flush=True)
-            # Would need to create document from scratch - complex, skip for now
+            print("ERROR: No pricing table found", flush=True)
             return False
         
-        print(f"✓ Found pricing table: {len(pricing_table.rows)} rows", flush=True)
-        
-        # Clear pricing table (keep header)
+        # Clear table
         while len(pricing_table.rows) > 1:
             pricing_table._tbl.remove(pricing_table.rows[1]._tr)
         
-        print("✓ Cleared existing table data", flush=True)
-        
-        # Get column mapping from plan
-        column_mapping = {}
-        for section in recomposition_plan.get('document_sections', []):
-            if section.get('section_type') == 'pricing_table':
-                column_mapping = section.get('content', {}).get('column_mapping', {})
-                break
-        
-        print(f"✓ Column mapping: {column_mapping}", flush=True)
-        
-        # Fill table with items
+        # Fill with Offer 1 items
         items = extraction_data.get('items', [])
-        print(f"✓ Filling table with {len(items)} items", flush=True)
         
-        # Group by category
+        if not items:
+            print("ERROR: No items to insert", flush=True)
+            return False
+        
         categorized = OrderedDict()
         for item in items:
             cat = item.get('category', 'Items')
@@ -380,12 +470,10 @@ def execute_recomposition_docx(template_path, extraction_data, recomposition_pla
                 categorized[cat] = []
             categorized[cat].append(item)
         
-        print(f"✓ Grouped into {len(categorized)} categories", flush=True)
+        print(f"  ✓ Filling {len(items)} items in {len(categorized)} categories", flush=True)
         
         item_counter = 1
         for category, cat_items in categorized.items():
-            print(f"  Processing category: {category} ({len(cat_items)} items)", flush=True)
-            
             # Category row
             cat_row = pricing_table.add_row().cells
             if len(cat_row) >= 2:
@@ -399,66 +487,60 @@ def execute_recomposition_docx(template_path, extraction_data, recomposition_pla
             for item in cat_items:
                 row = pricing_table.add_row().cells
                 
-                # Map according to plan (or use default)
                 if len(row) >= 1:
                     row[0].text = str(item_counter)
                 
                 if len(row) >= 2:
-                    # Build FULL description from ALL available fields
+                    # Build COMPLETE description
                     desc_parts = []
                     
-                    # Item name
                     if item.get('item_name'):
                         desc_parts.append(item['item_name'])
-                    
-                    # Technical description
                     if item.get('technical_description'):
                         desc_parts.append(item['technical_description'])
-                    
-                    # Specifications
                     if item.get('specifications'):
                         if isinstance(item['specifications'], dict):
                             specs = ", ".join([f"{k}: {v}" for k, v in item['specifications'].items()])
                             desc_parts.append(f"\nSpecifications: {specs}")
-                        elif isinstance(item['specifications'], str):
+                        else:
                             desc_parts.append(f"\n{item['specifications']}")
-                    
-                    # Notes
                     if item.get('notes'):
                         desc_parts.append(f"\n{item['notes']}")
-                    
-                    # Legacy details field
                     if item.get('details'):
                         desc_parts.append(f"\n{item['details']}")
+                    if item.get('description') and item.get('description') != item.get('technical_description'):
+                        desc_parts.append(f"\n{item['description']}")
                     
                     full_description = "\n\n".join(desc_parts)
                     row[1].text = full_description
+                    
+                    for para in row[1].paragraphs:
+                        para.alignment = WD_ALIGN_PARAGRAPH.LEFT
                 
                 if len(row) >= 3:
                     row[2].text = str(item.get('unit_price', ''))
-                
                 if len(row) >= 4:
                     row[3].text = str(item.get('quantity', '1'))
-                
                 if len(row) >= 5:
                     row[4].text = str(item.get('total_price', ''))
                 
                 item_counter += 1
         
-        print(f"✓ Filled table with all items", flush=True)
+        print(f"  ✓ Filled pricing table with {item_counter - 1} items", flush=True)
         
-        # Save
+        # STEP 4: SAVE
+        print("STEP 4: Saving document...", flush=True)
         doc.save(output_path)
         file_size = os.path.getsize(output_path)
-        
-        print(f"✓ Document saved: {output_path}", flush=True)
-        print(f"  File size: {file_size:,} bytes", flush=True)
+        print(f"  ✓ Saved: {output_path} ({file_size:,} bytes)", flush=True)
+        print("=" * 60, flush=True)
+        print("✅ RECOMPOSITION COMPLETED", flush=True)
         print("=" * 60, flush=True)
         
         return True
         
     except Exception as e:
-        print(f"ERROR executing recomposition: {e}", flush=True)
+        print(f"ERROR: {e}", flush=True)
         import traceback
         traceback.print_exc()
         return False
