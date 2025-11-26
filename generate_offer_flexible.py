@@ -355,42 +355,44 @@ def generate_offer_flexible():
         
         print(f"✓ Loaded extraction: {len(extraction_data.get('items', []))} items", flush=True)
         
-        # Load template structure
+        # Load template structure - RUN PROMPT 2 IF MISSING
         template_structure = load_template_structure()
         if not template_structure:
-            print("ERROR: No template structure", flush=True)
-            return False
+            print("⚠ Template structure missing, running PROMPT 2 now...", flush=True)
+            
+            # Find template
+            template_docx = os.path.join(BASE_DIR, "offer2_template.docx")
+            template_xlsx = os.path.join(BASE_DIR, "offer2_template.xlsx")
+            
+            if os.path.exists(template_docx):
+                template_path = template_docx
+            elif os.path.exists(template_xlsx):
+                template_path = template_xlsx
+            else:
+                print("ERROR: No template found", flush=True)
+                return False
+            
+            # Run PROMPT 2
+            import subprocess
+            analyze_script = os.path.join(BASE_DIR, 'analyze_offer2_template.py')
+            result = subprocess.run(
+                ['python', analyze_script],
+                capture_output=True,
+                text=True,
+                cwd=BASE_DIR,
+                timeout=120
+            )
+            
+            if result.stdout:
+                print(result.stdout, flush=True)
+            
+            # Try loading again
+            template_structure = load_template_structure()
+            if not template_structure:
+                print("ERROR: PROMPT 2 failed to create template structure", flush=True)
+                return False
         
-        print("✓ Loaded template structure", flush=True)
-        
-        # Get recomposition plan
-        recomposition_plan = get_recomposition_plan(extraction_data, template_structure)
-        if not recomposition_plan:
-            print("ERROR: Could not create recomposition plan", flush=True)
-            return False
-        
-        # Save plan for debugging
-        plan_path = os.path.join(OUTPUT_FOLDER, "recomposition_plan.json")
-        with open(plan_path, 'w', encoding='utf-8') as f:
-            json.dump(recomposition_plan, f, indent=2, ensure_ascii=False)
-        print(f"✓ Saved plan: {plan_path}", flush=True)
-        
-        # Find template
-        template_docx = os.path.join(BASE_DIR, "offer2_template.docx")
-        if not os.path.exists(template_docx):
-            print("ERROR: No template file", flush=True)
-            return False
-        
-        # Execute recomposition
-        output_path = os.path.join(OUTPUT_FOLDER, "final_offer1.docx")
-        success = execute_recomposition_docx(template_docx, extraction_data, recomposition_plan, output_path)
-        
-        if success:
-            print("=== RECOMPOSITION COMPLETED SUCCESSFULLY ===", flush=True)
-            return True
-        else:
-            print("ERROR: Recomposition failed", flush=True)
-            return False
+        print("✓ Template structure loaded", flush=True)
         
     except Exception as e:
         print(f"FATAL ERROR: {e}", flush=True)
