@@ -13,128 +13,127 @@ OUTPUT_FOLDER = os.path.join(BASE_DIR, 'outputs')
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
 # PROMPT 1: Extract ALL data from Offer 1 (Supplier Quotation)
-EXTRACTION_PROMPT = """PROMPT 1: EXTRACT ALL DATA FROM OFFER 1 (SUPPLIER QUOTATION)
-==============================================================
+EXTRACTION_PROMPT = """PROMPT 1: EXTRACT EVERY LINE ITEM FROM SUPPLIER QUOTATION
+================================================================
 
-You are an experienced procurement specialist who manually rewrites supplier quotations into company-branded offers. This is what you do every day at work.
+You are extracting data from a supplier quotation. Your job is to extract EVERY SINGLE LINE that has a price.
 
-YOUR DAILY TASK:
-A supplier sent you their quotation (Offer 1). Your job is to extract ALL information from it and create a clean, professional offer for your client using your company's branded template (Offer 2).
+CRITICAL EXTRACTION RULES:
 
-WHAT YOU EXTRACT FROM SUPPLIER QUOTATION (Offer 1):
-
-1. PRICING DATA (Every Item):
-   - Item name/description with model numbers
-   - Technical specifications
-   - Quantity
-   - Unit price with currency (€, $, £, etc.)
-   - Total price
-   - Notes (Included, Optional, On request, etc.)
-
-2. TECHNICAL CONTENT:
-   - Product descriptions (paragraphs of text)
-   - Technical specifications (feature lists, bullet points)
-   - Specification tables (dimensions, capacity, power, etc.)
-   - Installation requirements
-   - Warranty information
-   - Compliance certifications
-
-3. VISUAL ELEMENTS:
-   - Product photos/images
-   - Technical diagrams
-   - Logos (if any)
-   - Charts or infographics
-
-HOW YOU WORK (Like a Real Human):
-
-1. READ THE ENTIRE DOCUMENT
-   - Start from page 1, read every section
-   - Scan all pages until you see "Terms and Conditions", "Payment Terms", or document end
-   - Check for continuation indicators ("See next page", "Continued", etc.)
-
-2. EXTRACT FROM ALL SECTIONS
-   - Main equipment/products table
+1. **EXTRACT EVERY LINE ITEM SEPARATELY**
+   - Main equipment (machines, systems, units)
+   - Packing/crating (wooden crates, packaging)
+   - Shipping/loading (loading on truck, freight)
+   - Installation services
    - Optional accessories
-   - Add-ons and upgrades
-   - Packing options
-   - Format changes
-   - Additional services
-   - ANY section that has pricing or technical details
+   - Training
+   - ANY line that shows a price or cost
 
-3. CAPTURE TECHNICAL DESCRIPTIONS
-   - Copy full product descriptions (not just item names)
-   - Extract feature lists and specifications
-   - Note any special requirements or conditions
-   - Identify which images belong to which products
+2. **EACH LINE = SEPARATE ITEM**
+   Example from quotation:
+   ```
+   1  DISTILLATION UNIT C27    €96,900.00
+      Packing (wooden crates)   €1,830.00
+   ```
+   This is **2 ITEMS**, not 1:
+   - Item 1: DISTILLATION UNIT C27 - €96,900.00
+   - Item 2: Packing (wooden crates) - €1,830.00
 
-4. HANDLE DIFFERENT PRICE FORMATS
-   - Numeric prices: €324.400,00 or $15,400.00 (preserve exact format)
-   - Included items: "Included" (when price is 0 or marked as included)
-   - Quote on request: "On request" (when it says "Can be offered", "To be quoted", "Please inquire")
+3. **SCAN ENTIRE DOCUMENT**
+   - Read ALL pages from start to finish
+   - Stop at "Terms and Conditions", "Payment Terms", or "Exclusions"
+   - Extract from tables AND from text paragraphs with prices
 
-5. MULTI-LANGUAGE RECOGNITION
-   - English, Ukrainian, Russian, Italian, German, French, Spanish
-   - Recognize column headers in any language
-   - Preserve original language in descriptions
+4. **EXTRACT TECHNICAL CONTENT**
+   - Full product descriptions (multi-paragraph text blocks)
+   - Component lists (bullet points describing parts)
+   - Technical specification tables (capacity, dimensions, power, etc.)
+   - Feature descriptions
+   - Images and diagrams
 
-VALIDATION BEFORE FINISHING (Self-Check):
-☑ Did I read the entire document to the end?
-☑ Did I extract prices from ALL sections (not just main table)?
-☑ Did I capture technical descriptions and specifications?
-☑ Did I identify all images and which products they relate to?
-☑ Did I check for optional/accessory sections?
-☑ Are there any price indicators after my last item? (If yes → go back)
-☑ Did I preserve the exact price format with thousand separators?
+5. **HANDLE PRICES**
+   - Numeric: "€96,900.00" or "$15,400" (preserve exact format)
+   - Included: "Included" (when marked as included or price is 0)
+   - On request: "On request" (when "to be quoted", "on demand", etc.)
 
-RETURN FORMAT - Complete JSON with all extracted data:
+**VALIDATION CHECKLIST** (Ask yourself before returning):
+☑ Did I extract EVERY price line? (main items + packing + options)
+☑ Did I treat packing/crating as SEPARATE items?
+☑ Did I scan the ENTIRE document to the end?
+☑ Did I extract technical descriptions AND specification tables?
+☑ Did I identify which images belong to which products?
+
+**RETURN FORMAT:**
 
 {
   "items": [
     {
       "category": "Main Equipment",
-      "item_name": "CAN FILLER ISO 20/2 S",
-      "technical_description": "Full paragraph describing features, capabilities, included components...",
+      "item_name": "DISCONTINUOUS DISTILLATION UNIT C27",
+      "technical_description": "For wine, fermented grapes and other fruits - working with indirect steam at max. 0,5 bar, operating at atmospheric pressure. Alembic capacity: 1000 Litres",
       "specifications": {
-        "model": "ISO 20/2 S",
-        "capacity": "20 filling valves, 2 seaming heads",
-        "can_size": "0.33L standard aluminum",
-        "direction": "Clockwise"
+        "model": "C27",
+        "capacity": "1000 Litres",
+        "working_pressure": "0,5 bar"
       },
       "quantity": "1",
-      "unit_price": "€324.400,00",
-      "total_price": "€324.400,00",
+      "unit_price": "€96.900,00",
+      "total_price": "€96.900,00",
+      "notes": "Custom Tariff 8419 4000",
+      "related_images": ["C27_image"]
+    },
+    {
+      "category": "Packing",
+      "item_name": "Packing (wooden crates) and loading on truck",
+      "technical_description": "",
+      "specifications": {},
+      "quantity": "1",
+      "unit_price": "€1.830,00",
+      "total_price": "€1.830,00",
       "notes": "",
-      "related_images": ["image_1", "image_2"]
+      "related_images": []
     }
   ],
   "technical_sections": [
     {
-      "title": "Features of the rinsing turret",
-      "content": "Full text content of this section...",
+      "title": "Features of the Discontinuous Distillation Unit C27",
+      "content": "An alembic in stainless steel and copper with a working capacity of 10 hl, equipped with a slow revolving stirrer...",
       "type": "text_paragraph"
     },
     {
-      "title": "Technical Specifications",
-      "content": ["Feature 1", "Feature 2", "Feature 3"],
-      "type": "bullet_list"
+      "title": "C27 Technical Data",
+      "content": {
+        "table_headers": ["NAME", "UNIT", "VALUE"],
+        "table_rows": [
+          ["Raw material production capacity per cycle", "litres", "1.000"],
+          ["Total time each cycle", "hours", "2.5 / 4.5"]
+        ]
+      },
+      "type": "specification_table"
     }
   ],
   "images": [
     {
-      "id": "image_1",
-      "description": "Can filler machine front view",
-      "related_items": ["CAN FILLER ISO 20/2 S"]
+      "id": "C27_image",
+      "description": "C27 distillation unit equipment photo",
+      "related_items": ["DISCONTINUOUS DISTILLATION UNIT C27"]
     }
   ],
   "document_metadata": {
     "currency": "EUR",
-    "total_items": 47,
-    "has_optional_sections": true,
-    "languages_detected": ["English", "Italian"]
+    "total_items": 4,
+    "has_optional_sections": false,
+    "languages_detected": ["English"]
   }
 }
 
-Now, analyze this supplier quotation and extract everything as if you were manually rewriting it:"""
+**CRITICAL REMINDERS:**
+- Packing is a SEPARATE item, not part of equipment
+- Extract specification TABLES as tables (with headers and rows)
+- Each price line = one item in the array
+- Continue scanning until you see "EXCLUSIONS" or "Terms and Conditions"
+
+Now extract EVERYTHING from this quotation:"""
 
 def extract_items_from_pdf(pdf_path, output_path):
     try:
