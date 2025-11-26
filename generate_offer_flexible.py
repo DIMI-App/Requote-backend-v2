@@ -253,13 +253,23 @@ def get_recomposition_plan(extraction_data, template_structure):
         
         plan_json = response.choices[0].message.content.strip()
         
-        # Clean JSON
+        # Aggressive JSON cleaning
         if plan_json.startswith("```json"):
             plan_json = plan_json.replace("```json", "").replace("```", "").strip()
         elif plan_json.startswith("```"):
             plan_json = plan_json.replace("```", "").strip()
         
+        # Remove any leading/trailing whitespace and control characters
+        plan_json = plan_json.strip()
+        
+        # Log the cleaned response
         print(f"Raw response (first 500 chars):\n{plan_json[:500]}\n", flush=True)
+        
+        # Validate it looks like JSON
+        if not plan_json.startswith('{'):
+            print(f"ERROR: Response doesn't start with '{{'. Starts with: '{plan_json[:50]}'", flush=True)
+            print(f"Full response:\n{plan_json}\n", flush=True)
+            return None
         
         # Parse JSON
         try:
@@ -504,8 +514,34 @@ def generate_offer_flexible():
         recomposition_plan = get_recomposition_plan(extraction_data, template_structure)
         
         if not recomposition_plan:
-            print("ERROR: Could not create recomposition plan", flush=True)
-            return False
+            print("⚠ GPT recomposition plan failed, using simple default plan", flush=True)
+            # Use simple default plan
+            recomposition_plan = {
+                "product_summary": "Equipment quotation",
+                "document_sections": [
+                    {
+                        "section_type": "pricing_table",
+                        "position": "main_body",
+                        "content": {
+                            "categories": ["Items"],
+                            "column_mapping": {
+                                "col_0": "position_number",
+                                "col_1": "full_description_with_specs",
+                                "col_2": "unit_price",
+                                "col_3": "quantity",
+                                "col_4": "total_price"
+                            },
+                            "items_to_include": "all"
+                        }
+                    }
+                ],
+                "content_mapping": {
+                    "technical_descriptions_placement": "in_table"
+                },
+                "formatting_instructions": {},
+                "translation_needed": False
+            }
+            print("✓ Using fallback plan", flush=True)
         
         # Save plan for debugging
         plan_path = os.path.join(OUTPUT_FOLDER, "recomposition_plan.json")
