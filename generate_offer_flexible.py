@@ -259,13 +259,48 @@ def get_recomposition_plan(extraction_data, template_structure):
         elif plan_json.startswith("```"):
             plan_json = plan_json.replace("```", "").strip()
         
-        print(f"Raw response (first 300 chars): {plan_json[:300]}", flush=True)
+        print(f"Raw response (first 500 chars):\n{plan_json[:500]}\n", flush=True)
         
-        recomposition_plan = json.loads(plan_json)
+        # Parse JSON
+        try:
+            recomposition_plan = json.loads(plan_json)
+        except json.JSONDecodeError as e:
+            print(f"JSON decode error: {e}", flush=True)
+            print(f"Full response:\n{plan_json}", flush=True)
+            return None
+        
+        # Validate required fields
+        if not isinstance(recomposition_plan, dict):
+            print(f"ERROR: Response is not a dictionary, it's {type(recomposition_plan)}", flush=True)
+            print(f"Content: {recomposition_plan}", flush=True)
+            return None
+        
+        # Check for required keys
+        required_keys = ['document_sections']
+        missing_keys = [key for key in required_keys if key not in recomposition_plan]
+        
+        if missing_keys:
+            print(f"WARNING: Missing keys in response: {missing_keys}", flush=True)
+            print(f"Available keys: {list(recomposition_plan.keys())}", flush=True)
+            # Continue anyway - we can work with partial data
         
         print("✓ Recomposition plan created", flush=True)
-        print(f"  Product: {recomposition_plan.get('product_summary', 'N/A')[:60]}...", flush=True)
-        print(f"  Sections to create: {len(recomposition_plan.get('document_sections', []))}", flush=True)
+        
+        # Safe access to fields
+        product_summary = recomposition_plan.get('product_summary', 'N/A')
+        if product_summary and len(product_summary) > 60:
+            print(f"  Product: {product_summary[:60]}...", flush=True)
+        else:
+            print(f"  Product: {product_summary}", flush=True)
+        
+        sections = recomposition_plan.get('document_sections', [])
+        print(f"  Sections to create: {len(sections)}", flush=True)
+        
+        if sections:
+            print("  Section types:", flush=True)
+            for section in sections:
+                print(f"    - {section.get('section_type', 'unknown')}: {section.get('position', 'unknown')}", flush=True)
+        
         print("=" * 60, flush=True)
         
         return recomposition_plan
@@ -274,8 +309,13 @@ def get_recomposition_plan(extraction_data, template_structure):
         print(f"JSON Parse Error: {e}", flush=True)
         print(f"Response was: {plan_json if 'plan_json' in locals() else 'No response'}", flush=True)
         return None
+    except KeyError as e:
+        print(f"KeyError accessing field: {e}", flush=True)
+        print(f"Available keys: {list(recomposition_plan.keys()) if 'recomposition_plan' in locals() else 'N/A'}", flush=True)
+        return None
     except Exception as e:
         print(f"Error getting recomposition plan: {e}", flush=True)
+        print(f"Error type: {type(e).__name__}", flush=True)
         import traceback
         traceback.print_exc()
         return None
