@@ -331,7 +331,7 @@ def get_recomposition_plan(extraction_data, template_structure):
         return None
 
 def execute_recomposition_docx(template_path, extraction_data, recomposition_plan, output_path):
-    """Execute recomposition - PROPERLY CLEAR ALL OFFER 2 CONTENT"""
+    """Execute recomposition - REMOVE ALL Offer 2 equipment content, INSERT ALL Offer 1 content"""
     try:
         print("=" * 60, flush=True)
         print("EXECUTING DOCUMENT RECOMPOSITION", flush=True)
@@ -339,15 +339,15 @@ def execute_recomposition_docx(template_path, extraction_data, recomposition_pla
         
         doc = Document(template_path)
         
-        # STEP 1: IDENTIFY AND KEEP ONLY PRICING TABLE
-        print("STEP 1: Identifying pricing table...", flush=True)
+        # STEP 1: IDENTIFY PRICING TABLE AND REMOVE ALL OTHER TABLES
+        print("STEP 1: Identifying pricing table and removing Offer 2 tables...", flush=True)
         
         pricing_table = None
         tables_to_remove = []
         
         for table in doc.tables:
-            # Pricing table has: multiple columns (>=4), multiple rows, likely has headers
-            if len(table.columns) >= 4 and len(table.rows) > 2:
+            # Pricing table has: multiple columns (>=4), multiple rows
+            if len(table.columns) >= 4 and len(table.rows) >= 2:
                 if pricing_table is None:
                     pricing_table = table
                     print(f"  ✓ Found pricing table: {len(table.rows)} rows, {len(table.columns)} cols", flush=True)
@@ -360,21 +360,46 @@ def execute_recomposition_docx(template_path, extraction_data, recomposition_pla
             print("ERROR: No pricing table found", flush=True)
             return False
         
-        # Remove all other tables
+        # Remove all other tables (these are Offer 2 technical tables)
         for table in tables_to_remove:
             table._element.getparent().remove(table._element)
         
         print(f"  ✓ Removed {len(tables_to_remove)} extra tables from Offer 2", flush=True)
         
-        # STEP 2: AGGRESSIVE PARAGRAPH CLEANUP
-        print("STEP 2: Clearing all Offer 2 content...", flush=True)
+        # STEP 2: CLEAR PRICING TABLE COMPLETELY (including header with Offer 2 content)
+        print("STEP 2: Clearing pricing table from Offer 2 content...", flush=True)
         
-        # Find pricing table position
-        table_element = pricing_table._element
-        table_parent = table_element.getparent()
-        table_index = list(table_parent).index(table_element)
+        original_cols = len(pricing_table.columns)
+        print(f"  Original table has {original_cols} columns", flush=True)
         
-        # Remove ALL paragraphs except first 2 (company header)
+        # Clear ALL rows (including header row which has "WORKING RANGE FOR CHAMPAGNE")
+        while len(pricing_table.rows) > 0:
+            pricing_table._tbl.remove(pricing_table.rows[0]._tr)
+        
+        print(f"  ✓ Cleared all rows from pricing table", flush=True)
+        
+        # Create new header row with generic structure
+        header_row = pricing_table.add_row().cells
+        if len(header_row) >= 5:
+            header_row[0].text = "Pos"
+            header_row[1].text = "Description"
+            header_row[2].text = "Unit Price"
+            header_row[3].text = "Qty"
+            header_row[4].text = "Total"
+            
+            # Make header bold
+            for cell in header_row[:5]:
+                for para in cell.paragraphs:
+                    for run in para.runs:
+                        run.font.bold = True
+                        run.font.size = Pt(11)
+        
+        print(f"  ✓ Created new clean header", flush=True)
+        
+        # STEP 3: REMOVE ALL OFFER 2 PARAGRAPHS (except company header/logo)
+        print("STEP 3: Removing all Offer 2 paragraphs...", flush=True)
+        
+        # Keep only first 2 paragraphs (company header/logo)
         paragraphs_to_keep = 2
         removed_count = 0
         
@@ -394,8 +419,8 @@ def execute_recomposition_docx(template_path, extraction_data, recomposition_pla
         
         print(f"  ✓ Removed {removed_count} paragraphs (kept {paragraphs_to_keep} for header)", flush=True)
         
-        # STEP 3: INSERT TECHNICAL CONTENT FROM OFFER 1
-        print("STEP 3: Inserting Offer 1 technical content...", flush=True)
+        # STEP 4: INSERT ALL OFFER 1 TECHNICAL CONTENT
+        print("STEP 4: Inserting ALL Offer 1 technical content...", flush=True)
         
         technical_sections = extraction_data.get('technical_sections', [])
         
@@ -410,7 +435,7 @@ def execute_recomposition_docx(template_path, extraction_data, recomposition_pla
             table_parent = table_element.getparent()
             table_index = list(table_parent).index(table_element)
             
-            print(f"  Inserting {len(technical_sections)} technical sections...", flush=True)
+            print(f"  Inserting {len(technical_sections)} technical sections from Offer 1...", flush=True)
             
             for section in technical_sections:
                 title = section.get('section_title', '') or section.get('title', '')
@@ -434,8 +459,38 @@ def execute_recomposition_docx(template_path, extraction_data, recomposition_pla
                     table_parent.insert(table_index, title_para._element)
                     table_index += 1
                 
-                # Add content
-                if content_type == 'bullet_list' or isinstance(content, list):
+                # Add content based on type
+                if content_type == 'specification_table':
+                    # This is a technical data table - insert as actual table
+                    print(f"    Inserting specification table: {title}", flush=True)
+                    
+                    if isinstance(content, dict):
+                        headers = content.get('table_headers', [])
+                        rows = content.get('table_rows', [])
+                        
+                        if headers and rows:
+                            # Create table
+                            spec_table = doc.add_table(rows=1 + len(rows), cols=len(headers))
+                            spec_table.style = 'Light Grid Accent 1'
+                            
+                            # Headers
+                            for i, header in enumerate(headers):
+                                cell = spec_table.rows[0].cells[i]
+                                cell.text = str(header)
+                                for para in cell.paragraphs:
+                                    for run in para.runs:
+                                        run.font.bold = True
+                            
+                            # Data rows
+                            for row_idx, row_data in enumerate(rows):
+                                for col_idx, cell_data in enumerate(row_data):
+                                    spec_table.rows[row_idx + 1].cells[col_idx].text = str(cell_data)
+                            
+                            table_parent.insert(table_index, spec_table._element)
+                            table_index += 1
+                
+                elif content_type == 'bullet_list' or isinstance(content, list):
+                    # Bullet list
                     lines = content if isinstance(content, list) else str(content).split('\n')
                     for line in lines:
                         line = str(line).strip()
@@ -443,24 +498,21 @@ def execute_recomposition_docx(template_path, extraction_data, recomposition_pla
                             para = doc.add_paragraph(line, style='List Bullet')
                             table_parent.insert(table_index, para._element)
                             table_index += 1
+                
                 else:
-                    # Regular paragraph
+                    # Regular text paragraph
                     para = doc.add_paragraph(str(content).strip())
                     for run in para.runs:
                         run.font.size = Pt(10)
                     table_parent.insert(table_index, para._element)
                     table_index += 1
             
-            print(f"  ✓ Inserted technical sections", flush=True)
+            print(f"  ✓ Inserted all technical sections from Offer 1", flush=True)
         else:
             print("  ⚠ No technical sections found in Offer 1", flush=True)
         
-        # STEP 4: CLEAR AND FILL PRICING TABLE
-        print("STEP 4: Filling pricing table with Offer 1 items...", flush=True)
-        
-        # Clear table (keep header row)
-        while len(pricing_table.rows) > 1:
-            pricing_table._tbl.remove(pricing_table.rows[1]._tr)
+        # STEP 5: FILL PRICING TABLE WITH OFFER 1 ITEMS
+        print("STEP 5: Filling pricing table with Offer 1 items...", flush=True)
         
         items = extraction_data.get('items', [])
         
@@ -533,7 +585,7 @@ def execute_recomposition_docx(template_path, extraction_data, recomposition_pla
         
         print(f"  ✓ Added {item_counter - 1} items to pricing table", flush=True)
         
-        # STEP 5: SAVE
+        # STEP 6: SAVE
         doc.save(output_path)
         file_size = os.path.getsize(output_path)
         
@@ -541,7 +593,7 @@ def execute_recomposition_docx(template_path, extraction_data, recomposition_pla
         print(f"✅ DOCUMENT SAVED: {output_path}", flush=True)
         print(f"   File size: {file_size:,} bytes", flush=True)
         print(f"   Items: {item_counter - 1}", flush=True)
-        print(f"   Tables: {len(doc.tables)}", flush=True)
+        print(f"   Tables: {len(doc.tables)} (should be 1 pricing + N technical)", flush=True)
         print(f"   Paragraphs: {len(doc.paragraphs)}", flush=True)
         print("=" * 60, flush=True)
         
