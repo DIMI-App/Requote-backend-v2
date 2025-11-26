@@ -1,6 +1,7 @@
 import os
 import sys
 import json
+import subprocess
 import openai
 from docx import Document
 from docx.shared import Pt, RGBColor, Inches
@@ -168,8 +169,55 @@ def load_template_structure():
             data = json.load(f)
             return data.get('structure', {})
     except Exception as e:
-        print(f"Error loading template structure: {e}", flush=True)
+        print(f"Template structure not found: {e}", flush=True)
         return None
+
+def run_prompt_2_analysis():
+    """Run PROMPT 2 to analyze template structure"""
+    try:
+        print("=" * 60, flush=True)
+        print("RUNNING PROMPT 2 (Template Analysis)", flush=True)
+        print("=" * 60, flush=True)
+        
+        analyze_script = os.path.join(BASE_DIR, 'analyze_offer2_template.py')
+        
+        if not os.path.exists(analyze_script):
+            print(f"ERROR: analyze_offer2_template.py not found at {analyze_script}", flush=True)
+            return False
+        
+        result = subprocess.run(
+            ['python', analyze_script],
+            capture_output=True,
+            text=True,
+            cwd=BASE_DIR,
+            timeout=120
+        )
+        
+        if result.stdout:
+            print(result.stdout, flush=True)
+        if result.stderr:
+            print(result.stderr, flush=True)
+        
+        if result.returncode != 0:
+            print("ERROR: PROMPT 2 failed", flush=True)
+            return False
+        
+        # Check if template_structure.json was created
+        if os.path.exists(TEMPLATE_STRUCTURE_PATH):
+            print("✓ PROMPT 2 completed successfully", flush=True)
+            return True
+        else:
+            print("ERROR: PROMPT 2 did not create template_structure.json", flush=True)
+            return False
+        
+    except subprocess.TimeoutExpired:
+        print("ERROR: PROMPT 2 timed out", flush=True)
+        return False
+    except Exception as e:
+        print(f"ERROR running PROMPT 2: {e}", flush=True)
+        import traceback
+        traceback.print_exc()
+        return False
 
 def get_recomposition_plan(extraction_data, template_structure):
     """Get intelligent recomposition plan from GPT"""
@@ -259,6 +307,8 @@ def execute_recomposition_docx(template_path, extraction_data, recomposition_pla
         while len(pricing_table.rows) > 1:
             pricing_table._tbl.remove(pricing_table.rows[1]._tr)
         
+        print("✓ Cleared existing table data", flush=True)
+        
         # Get column mapping from plan
         column_mapping = {}
         for section in recomposition_plan.get('document_sections', []):
@@ -280,8 +330,12 @@ def execute_recomposition_docx(template_path, extraction_data, recomposition_pla
                 categorized[cat] = []
             categorized[cat].append(item)
         
+        print(f"✓ Grouped into {len(categorized)} categories", flush=True)
+        
         item_counter = 1
         for category, cat_items in categorized.items():
+            print(f"  Processing category: {category} ({len(cat_items)} items)", flush=True)
+            
             # Category row
             cat_row = pricing_table.add_row().cells
             if len(cat_row) >= 2:
@@ -289,6 +343,7 @@ def execute_recomposition_docx(template_path, extraction_data, recomposition_pla
                 for para in cat_row[1].paragraphs:
                     for run in para.runs:
                         run.font.bold = True
+                        run.font.size = Pt(11)
             
             # Item rows
             for item in cat_items:
@@ -297,30 +352,50 @@ def execute_recomposition_docx(template_path, extraction_data, recomposition_pla
                 # Map according to plan (or use default)
                 if len(row) >= 1:
                     row[0].text = str(item_counter)
+                
                 if len(row) >= 2:
-                    # Build FULL description
+                    # Build FULL description from ALL available fields
                     desc_parts = []
+                    
+                    # Item name
                     if item.get('item_name'):
                         desc_parts.append(item['item_name'])
+                    
+                    # Technical description
                     if item.get('technical_description'):
                         desc_parts.append(item['technical_description'])
+                    
+                    # Specifications
                     if item.get('specifications'):
                         if isinstance(item['specifications'], dict):
                             specs = ", ".join([f"{k}: {v}" for k, v in item['specifications'].items()])
-                            desc_parts.append(specs)
-                        else:
-                            desc_parts.append(str(item['specifications']))
+                            desc_parts.append(f"\nSpecifications: {specs}")
+                        elif isinstance(item['specifications'], str):
+                            desc_parts.append(f"\n{item['specifications']}")
                     
-                    row[1].text = "\n\n".join(desc_parts)
+                    # Notes
+                    if item.get('notes'):
+                        desc_parts.append(f"\n{item['notes']}")
+                    
+                    # Legacy details field
+                    if item.get('details'):
+                        desc_parts.append(f"\n{item['details']}")
+                    
+                    full_description = "\n\n".join(desc_parts)
+                    row[1].text = full_description
                 
                 if len(row) >= 3:
                     row[2].text = str(item.get('unit_price', ''))
+                
                 if len(row) >= 4:
                     row[3].text = str(item.get('quantity', '1'))
+                
                 if len(row) >= 5:
                     row[4].text = str(item.get('total_price', ''))
                 
                 item_counter += 1
+        
+        print(f"✓ Filled table with all items", flush=True)
         
         # Save
         doc.save(output_path)
@@ -339,7 +414,7 @@ def execute_recomposition_docx(template_path, extraction_data, recomposition_pla
         return False
 
 def generate_offer_flexible():
-    """Main generation function"""
+    """Main generation function with auto PROMPT 2 execution"""
     try:
         print("=== FLEXIBLE GENERATION (RECOMPOSITION SYSTEM) ===", flush=True)
         
@@ -347,7 +422,7 @@ def generate_offer_flexible():
             print("ERROR: OPENAI_API_KEY not set", flush=True)
             return False
         
-        # Load extraction data
+        # STEP 1: Load extraction data
         extraction_data = load_extraction_data()
         if not extraction_data:
             print("ERROR: No extraction data", flush=True)
@@ -355,44 +430,73 @@ def generate_offer_flexible():
         
         print(f"✓ Loaded extraction: {len(extraction_data.get('items', []))} items", flush=True)
         
-        # Load template structure - RUN PROMPT 2 IF MISSING
+        # STEP 2: Load template structure - AUTO-RUN PROMPT 2 IF MISSING
         template_structure = load_template_structure()
+        
         if not template_structure:
             print("⚠ Template structure missing, running PROMPT 2 now...", flush=True)
             
-            # Find template
+            # Find template file
             template_docx = os.path.join(BASE_DIR, "offer2_template.docx")
             template_xlsx = os.path.join(BASE_DIR, "offer2_template.xlsx")
             
-            if os.path.exists(template_docx):
-                template_path = template_docx
-            elif os.path.exists(template_xlsx):
-                template_path = template_xlsx
-            else:
-                print("ERROR: No template found", flush=True)
+            if not os.path.exists(template_docx) and not os.path.exists(template_xlsx):
+                print("ERROR: No template found (need offer2_template.docx or .xlsx)", flush=True)
                 return False
             
             # Run PROMPT 2
-            import subprocess
-            analyze_script = os.path.join(BASE_DIR, 'analyze_offer2_template.py')
-            result = subprocess.run(
-                ['python', analyze_script],
-                capture_output=True,
-                text=True,
-                cwd=BASE_DIR,
-                timeout=120
-            )
+            success = run_prompt_2_analysis()
             
-            if result.stdout:
-                print(result.stdout, flush=True)
+            if not success:
+                print("ERROR: PROMPT 2 failed to analyze template", flush=True)
+                return False
             
-            # Try loading again
+            # Try loading template structure again
             template_structure = load_template_structure()
+            
             if not template_structure:
-                print("ERROR: PROMPT 2 failed to create template structure", flush=True)
+                print("ERROR: PROMPT 2 completed but template_structure.json is invalid", flush=True)
                 return False
         
         print("✓ Template structure loaded", flush=True)
+        
+        # STEP 3: Get recomposition plan from GPT
+        recomposition_plan = get_recomposition_plan(extraction_data, template_structure)
+        
+        if not recomposition_plan:
+            print("ERROR: Could not create recomposition plan", flush=True)
+            return False
+        
+        # Save plan for debugging
+        plan_path = os.path.join(OUTPUT_FOLDER, "recomposition_plan.json")
+        with open(plan_path, 'w', encoding='utf-8') as f:
+            json.dump(recomposition_plan, f, indent=2, ensure_ascii=False)
+        print(f"✓ Saved recomposition plan: {plan_path}", flush=True)
+        
+        # STEP 4: Find template file
+        template_docx = os.path.join(BASE_DIR, "offer2_template.docx")
+        template_xlsx = os.path.join(BASE_DIR, "offer2_template.xlsx")
+        
+        if os.path.exists(template_docx):
+            template_path = template_docx
+        elif os.path.exists(template_xlsx):
+            print("ERROR: XLSX templates not yet supported in recomposition system", flush=True)
+            print("Please use DOCX template", flush=True)
+            return False
+        else:
+            print("ERROR: No template file found", flush=True)
+            return False
+        
+        # STEP 5: Execute recomposition
+        output_path = os.path.join(OUTPUT_FOLDER, "final_offer1.docx")
+        success = execute_recomposition_docx(template_path, extraction_data, recomposition_plan, output_path)
+        
+        if success:
+            print("=== RECOMPOSITION COMPLETED SUCCESSFULLY ===", flush=True)
+            return True
+        else:
+            print("ERROR: Recomposition execution failed", flush=True)
+            return False
         
     except Exception as e:
         print(f"FATAL ERROR: {e}", flush=True)
@@ -406,6 +510,8 @@ if __name__ == "__main__":
     success = generate_offer_flexible()
     
     if not success:
+        print("Generation failed", flush=True)
         sys.exit(1)
     
+    print("COMPLETED SUCCESSFULLY", flush=True)
     sys.exit(0)
