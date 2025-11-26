@@ -3,7 +3,6 @@ import sys
 import json
 import openai
 import fitz
-import base64
 from docx import Document
 import openpyxl
 
@@ -13,216 +12,233 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 OUTPUT_FOLDER = os.path.join(BASE_DIR, 'outputs')
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
-# PROMPT 2: Analyze Offer 2 Template Structure
-TEMPLATE_ANALYSIS_PROMPT = """PROMPT 2: ANALYZE OFFER 2 TEMPLATE STRUCTURE
-==============================================
+# REVISED PROMPT 2: DEEP TEMPLATE STRUCTURE ANALYSIS
+TEMPLATE_ANALYSIS_PROMPT = """You are analyzing a company's quotation template to understand its COMPLETE structure, not just the pricing table.
 
-You are a document formatting expert who analyzes company quotation templates to understand their structure, so you can replicate the same format when inserting new data.
+YOUR TASK: Understand this template like a human sales manager who needs to fill it out manually.
 
-YOUR TASK:
-A company has given you their branded quotation template (Offer 2). You need to thoroughly analyze it to understand:
-1. How it's structured
-2. Where different content types are placed
-3. What formatting style is used
-4. How to preserve this exact look when filling it with new data
+ANALYZE THESE ASPECTS:
 
-ANALYZE THE FOLLOWING ASPECTS:
-
-1. DOCUMENT STRUCTURE & FLOW
-   - What comes first? (Company header, logo, client info, intro text?)
-   - What's the sequence? (Description → Price table → Photos → Terms?)
+1. DOCUMENT FLOW & SECTIONS
+   - What comes first? (Company header, logo, client address section?)
+   - What's the sequence? (Header → Intro text → Technical specs → Pricing table → Optional items → Terms?)
    - How many distinct sections are there?
-   - Where does pricing table appear relative to descriptions?
-   - Where are images placed? (Before table, after table, mixed in?)
+   - What is the narrative flow?
 
-2. HEADER & BRANDING
-   - Company logo position (top-left, center, top-right?)
-   - Company name, address, contact information placement
-   - Header style (simple text, formatted box, letterhead?)
-   - Client information section (where and how formatted?)
-   - Date, quotation number, reference fields
+2. COMPANY BRANDING
+   - Company name and location
+   - Logo position (if visible)
+   - Header style (letterhead, simple text, formatted box?)
+   - Contact information placement
+   - Brand colors or styling
 
-3. PRICING TABLE STRUCTURE
-   - Column headers (in what language?)
-   - Column order (Item, Qty, Price, Total, Notes?)
-   - How many columns exactly?
-   - Is there a "Category" or "Section" column?
-   - Is there a "Description" or "Technical specs" column?
-   - Where are subtotals? (After each category, only at end?)
-   - Grand total placement and formatting
-   - Currency symbol position
+3. CONTENT PLACEMENT STRATEGY
+   - WHERE do product descriptions go?
+     * Before pricing table as paragraphs?
+     * Inside table description column?
+     * After table as appendix?
+     * Separate technical section?
+   
+   - WHERE do technical specifications go?
+     * Integrated in descriptions?
+     * Separate specifications table?
+     * Bullet points before/after main table?
+     * Technical data sheet at end?
+   
+   - WHERE do images/photos go?
+     * Inline with descriptions?
+     * Separate section at end?
+     * Next to each item?
+     * Not included?
+   
+   - WHERE do feature lists go?
+     * Bullet points in description?
+     * Separate "Features" section?
+     * Integrated in table?
 
-4. TEXT CONTENT PLACEMENT
-   - Is there introductory text before the price table?
-   - Are there product descriptions above/below table?
-   - Are technical specifications in separate sections?
-   - How are features/benefits presented? (Paragraphs, bullets, tables?)
-   - Is there explanatory text between pricing categories?
+4. PRICING TABLE STRUCTURE
+   - Table location in document (after what? before what?)
+   - Column headers (exact text, in what language)
+   - Column count and purposes
+   - How are categories shown? (header rows? separate sections?)
+   - How are optional items shown? (separate table? marked in main table?)
+   - Currency format (€1.234,56 or $1,234.56)
+   - Number formatting
 
-5. VISUAL ELEMENTS
-   - Are there product images? Where exactly?
-   - Are images next to items or in separate section?
-   - Image size and alignment (left, right, center, inline?)
-   - Are there logos, watermarks, or background graphics?
-   - Charts, diagrams, technical drawings?
+5. TEXT SECTIONS
+   - Is there introductory text before table?
+   - Are there explanatory paragraphs between sections?
+   - Is there a conclusion/summary after table?
+   - Payment terms location?
+   - Delivery terms location?
 
-6. FORMATTING STYLE
-   - Font family and sizes for different elements
-   - Bold, italic, underline usage patterns
-   - Color scheme (headers, table, text, borders)
-   - Line spacing and paragraph spacing
-   - Borders and shading (table cells, sections)
-   - Page margins and layout
+6. SPECIAL SECTIONS
+   - "Included" items section?
+   - "Optional" or "Accessories" section?
+   - "Exclusions" section?
+   - Terms and conditions?
+   - Warranty information?
 
-7. TABLE FORMATTING DETAILS
-   - Header row style (background color, bold text, borders)
-   - Data row style (alternating colors, borders, alignment)
-   - Text alignment in each column (left, right, center)
-   - Number formatting (thousand separators, decimals)
-   - Currency format (€1.234,56 or €1,234.56 or € 1,234.56)
+7. FORMATTING PATTERNS
+   - Font family used
+   - How are section headers formatted? (bold, size, color)
+   - How is body text formatted?
+   - Line spacing and margins
+   - Use of colors (headers, borders, backgrounds)
 
-8. SECTIONS & CATEGORIES
-   - How are different product categories separated?
-   - Are there section headers within the table?
-   - Separate tables for Main/Optional/Accessories?
-   - Or one unified table with category labels?
+8. MULTI-LANGUAGE DETECTION
+   - What language is the template in?
+   - Are there any bilingual elements?
 
-9. FOOTER & CLOSING
-   - Terms and conditions (where placed?)
-   - Payment terms, delivery information
-   - Signatures, approval sections
-   - Contact information repeated at bottom?
+CRITICAL: Your analysis must be detailed enough that another person could recreate this template's EXACT structure and flow from your description.
 
-10. MULTI-PAGE BEHAVIOR
-    - How does content flow across pages?
-    - Are headers/footers repeated on each page?
-    - Page numbers and their position
-    - Does table break across pages or stay on one?
+Return comprehensive JSON that maps the complete document structure.
 
-CRITICAL: Return a comprehensive JSON structure that captures ALL these details so that another system can perfectly recreate this template format when filling it with new data.
+NOW ANALYZE THIS TEMPLATE:
 
-NOW ANALYZE THIS TEMPLATE:"""
+Return JSON with this structure:
+{
+  "document_flow": {
+    "sections_in_order": ["header", "intro_text", "technical_description", "pricing_table", "optional_items", "terms"],
+    "narrative_style": "formal_technical / sales_oriented / minimal"
+  },
+  "company_branding": {
+    "company_name": "...",
+    "template_language": "EN/UK/IT/ES/DE/FR",
+    "header_style": "description"
+  },
+  "content_placement": {
+    "product_descriptions": "before_table / in_table_column / after_table / separate_section",
+    "technical_specs": "in_description / separate_specs_table / bullet_points / technical_data_sheet",
+    "images": "inline / after_table / not_included / separate_page",
+    "feature_lists": "bullets_in_description / separate_features_section / in_table"
+  },
+  "pricing_table": {
+    "location": "after_technical_description",
+    "columns": [
+      {"name": "POS.", "purpose": "position_number"},
+      {"name": "DESCRIPTION", "purpose": "item_description"},
+      {"name": "Q.", "purpose": "quantity"},
+      {"name": "UNIT PRICE", "purpose": "unit_price"},
+      {"name": "TOTAL", "purpose": "total_price"}
+    ],
+    "categories_shown_as": "bold_header_rows / separate_tables / column",
+    "optional_items": "separate_section_after_main / marked_in_main_table / separate_table",
+    "currency_format": "€1.234,56"
+  },
+  "text_sections": {
+    "has_intro_before_table": true/false,
+    "intro_content_type": "product_overview / company_intro / order_details",
+    "has_text_between_sections": true/false,
+    "has_conclusion_after_table": true/false,
+    "payment_terms_location": "header_box / after_table / separate_section",
+    "delivery_terms_location": "header_box / after_table / separate_section"
+  },
+  "special_sections": {
+    "has_exclusions_section": true/false,
+    "has_warranty_section": true/false,
+    "has_technical_data_table": true/false,
+    "technical_data_location": "before_pricing / after_pricing / separate_page"
+  },
+  "formatting_guide": {
+    "primary_font": "Arial / Calibri / Times",
+    "header_formatting": "bold_12pt / bold_colored_14pt",
+    "body_text_formatting": "normal_10pt / normal_11pt",
+    "emphasis_color": "#HEX if any"
+  }
+}
+"""
 
 def analyze_docx_template(template_path):
-    """Analyze DOCX template using PROMPT 2"""
+    """Deep analysis of DOCX template structure"""
     try:
-        print("Analyzing DOCX template...", flush=True)
+        print("Analyzing DOCX template structure...", flush=True)
         doc = Document(template_path)
         
-        analysis_text = f"\nDOCUMENT TYPE: DOCX\n"
-        analysis_text += f"PARAGRAPHS: {len(doc.paragraphs)}\n"
-        analysis_text += f"TABLES: {len(doc.tables)}\n\n"
+        analysis_text = f"\nTEMPLATE TYPE: DOCX\n"
+        analysis_text += f"TOTAL PARAGRAPHS: {len(doc.paragraphs)}\n"
+        analysis_text += f"TOTAL TABLES: {len(doc.tables)}\n\n"
         
-        # Get sample text
-        analysis_text += "SAMPLE CONTENT:\n"
-        for i, para in enumerate(doc.paragraphs[:10]):
+        # Extract document flow
+        analysis_text += "DOCUMENT STRUCTURE:\n"
+        
+        # First 20 paragraphs (to understand header and intro)
+        analysis_text += "\nFIRST 20 PARAGRAPHS (Headers and intro):\n"
+        for i, para in enumerate(doc.paragraphs[:20]):
             if para.text.strip():
-                analysis_text += f"Para {i+1}: {para.text[:100]}\n"
+                style = para.style.name if para.style else "Normal"
+                analysis_text += f"  Para {i+1} [{style}]: {para.text[:100]}\n"
         
-        # Get table structure
-        if doc.tables:
-            analysis_text += f"\nTABLE STRUCTURE (First table):\n"
-            table = doc.tables[0]
-            analysis_text += f"Rows: {len(table.rows)}, Columns: {len(table.columns)}\n"
+        # Analyze all tables
+        analysis_text += f"\nTABLES ANALYSIS ({len(doc.tables)} total):\n"
+        for table_idx, table in enumerate(doc.tables):
+            analysis_text += f"\n  Table {table_idx + 1}:\n"
+            analysis_text += f"    Rows: {len(table.rows)}, Columns: {len(table.columns)}\n"
+            
+            # Get header row
             if table.rows:
-                analysis_text += "Header row: " + " | ".join([cell.text[:20] for cell in table.rows[0].cells]) + "\n"
+                headers = [cell.text[:30] for cell in table.rows[0].cells]
+                analysis_text += f"    Headers: {' | '.join(headers)}\n"
+            
+            # Sample first 3 data rows
+            if len(table.rows) > 1:
+                analysis_text += f"    Sample rows:\n"
+                for row_idx in range(1, min(4, len(table.rows))):
+                    row_data = [cell.text[:20] for cell in table.rows[row_idx].cells]
+                    analysis_text += f"      Row {row_idx}: {' | '.join(row_data)}\n"
+        
+        # Last 10 paragraphs (to understand footer/terms)
+        analysis_text += "\nLAST 10 PARAGRAPHS (Footer and terms):\n"
+        for i, para in enumerate(doc.paragraphs[-10:]):
+            if para.text.strip():
+                analysis_text += f"  Para {len(doc.paragraphs) - 10 + i + 1}: {para.text[:100]}\n"
         
         return analysis_text
         
     except Exception as e:
         print(f"Error analyzing DOCX: {e}", flush=True)
-        return f"DOCX template structure: {str(e)}"
+        return f"Error analyzing DOCX: {str(e)}"
 
 def analyze_xlsx_template(template_path):
-    """Analyze XLSX template using PROMPT 2"""
+    """Deep analysis of XLSX template structure"""
     try:
-        print("Analyzing XLSX template...", flush=True)
+        print("Analyzing XLSX template structure...", flush=True)
         workbook = openpyxl.load_workbook(template_path)
         sheet = workbook.active
         
-        analysis_text = f"\nDOCUMENT TYPE: XLSX\n"
-        analysis_text += f"SHEET NAME: {sheet.title}\n"
-        analysis_text += f"MAX ROW: {sheet.max_row}, MAX COL: {sheet.max_column}\n\n"
+        analysis_text = f"\nTEMPLATE TYPE: XLSX\n"
+        analysis_text += f"SHEET: {sheet.title}\n"
+        analysis_text += f"DIMENSIONS: {sheet.max_row} rows x {sheet.max_column} cols\n\n"
         
-        # Get sample content
-        analysis_text += "SAMPLE CONTENT (First 10 rows):\n"
-        for row_idx in range(1, min(11, sheet.max_row + 1)):
+        # Get all non-empty rows
+        analysis_text += "SHEET STRUCTURE:\n"
+        for row_idx in range(1, min(30, sheet.max_row + 1)):
             row = sheet[row_idx]
             row_values = [str(cell.value) if cell.value else '' for cell in row]
-            analysis_text += f"Row {row_idx}: " + " | ".join(row_values[:5]) + "\n"
+            row_text = " | ".join([v[:30] for v in row_values if v.strip()])
+            if row_text:
+                analysis_text += f"  Row {row_idx}: {row_text}\n"
         
         return analysis_text
         
     except Exception as e:
         print(f"Error analyzing XLSX: {e}", flush=True)
-        return f"XLSX template structure: {str(e)}"
-
-def create_fallback_structure(template_path, output_path):
-    """Create a basic fallback structure when GPT analysis fails"""
-    try:
-        file_ext = template_path.lower().split('.')[-1]
-        
-        print("Creating fallback template structure (basic)...", flush=True)
-        
-        fallback_structure = {
-            "analysis_method": "FALLBACK_Basic_Structure",
-            "template_file": template_path,
-            "template_type": file_ext,
-            "structure": {
-                "document_type": file_ext.upper(),
-                "template_language": "EN",
-                "pricing_table": {
-                    "location": "main_table",
-                    "columns": [
-                        {"name": "Position", "type": "number", "alignment": "center"},
-                        {"name": "Description", "type": "text", "alignment": "left"},
-                        {"name": "Unit Price", "type": "currency", "alignment": "right"},
-                        {"name": "Quantity", "type": "number", "alignment": "center"},
-                        {"name": "Total Price", "type": "currency", "alignment": "right"}
-                    ],
-                    "currency_format": "€1,234.56"
-                },
-                "content_placement": {
-                    "descriptions": "in_table_column",
-                    "images": "not_applicable",
-                    "technical_specs": "in_description_column"
-                },
-                "formatting_rules": {
-                    "category_style": "bold_row",
-                    "header_style": "bold_colored",
-                    "number_format": "standard"
-                }
-            }
-        }
-        
-        os.makedirs(os.path.dirname(output_path), exist_ok=True)
-        
-        with open(output_path, 'w', encoding='utf-8') as f:
-            json.dump(fallback_structure, f, indent=2, ensure_ascii=False)
-        
-        print(f"✓ Fallback structure saved to {output_path}", flush=True)
-        return True
-        
-    except Exception as e:
-        print(f"ERROR creating fallback: {e}", flush=True)
-        return False
+        return f"Error analyzing XLSX: {str(e)}"
 
 def analyze_template_structure(template_path, output_path):
-    """Main function to analyze template using PROMPT 2 and GPT-4o"""
+    """Main analysis function"""
     try:
-        print("=== STARTING TEMPLATE ANALYSIS (PROMPT 2) ===", flush=True)
+        print("=== STARTING DEEP TEMPLATE ANALYSIS (REVISED PROMPT 2) ===", flush=True)
         
         if not openai.api_key:
             print("ERROR: OPENAI_API_KEY not set", flush=True)
-            # Create fallback structure
-            create_fallback_structure(template_path, output_path)
             return False
         
         if not os.path.exists(template_path):
             print(f"ERROR: Template not found: {template_path}", flush=True)
             return False
         
-        # Determine template type
+        # Determine file type
         file_ext = template_path.lower().split('.')[-1]
         print(f"Template type: {file_ext}", flush=True)
         
@@ -233,13 +249,13 @@ def analyze_template_structure(template_path, output_path):
             structure_info = analyze_xlsx_template(template_path)
         else:
             print(f"Unsupported template type: {file_ext}", flush=True)
-            create_fallback_structure(template_path, output_path)
             return False
         
-        # Build prompt with structure info
+        # Build full prompt
         full_prompt = TEMPLATE_ANALYSIS_PROMPT + "\n\n" + structure_info
         
-        print("Calling GPT-4o for template analysis...", flush=True)
+        print("Calling GPT-4o for deep template analysis...", flush=True)
+        print(f"Prompt length: {len(full_prompt)} characters", flush=True)
         
         response = openai.ChatCompletion.create(
             model="gpt-4o",
@@ -248,24 +264,22 @@ def analyze_template_structure(template_path, output_path):
             temperature=0
         )
         
-        print("Received template analysis", flush=True)
-        
         analysis_json = response.choices[0].message.content.strip()
         
-        # Clean JSON formatting
+        # Clean JSON
         if analysis_json.startswith("```json"):
             analysis_json = analysis_json.replace("```json", "").replace("```", "").strip()
         elif analysis_json.startswith("```"):
             analysis_json = analysis_json.replace("```", "").strip()
         
-        print("Parsing template analysis JSON...", flush=True)
+        print("Parsing template analysis...", flush=True)
         template_structure = json.loads(analysis_json)
         
-        # Save analysis
+        # Save
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
         
         output_data = {
-            "analysis_method": "PROMPT_2_Template_Analysis",
+            "analysis_method": "REVISED_PROMPT_2_Deep_Structure",
             "template_file": template_path,
             "template_type": file_ext,
             "structure": template_structure
@@ -274,36 +288,35 @@ def analyze_template_structure(template_path, output_path):
         with open(output_path, 'w', encoding='utf-8') as f:
             json.dump(output_data, f, indent=2, ensure_ascii=False)
         
-        print(f"✓ Template analysis saved to {output_path}", flush=True)
+        print(f"✓ Deep template analysis saved: {output_path}", flush=True)
         print("=== TEMPLATE ANALYSIS COMPLETED ===", flush=True)
         
         # Print summary
         if isinstance(template_structure, dict):
-            print("\nTemplate Summary:", flush=True)
-            if 'document_type' in template_structure:
-                print(f"  Type: {template_structure['document_type']}", flush=True)
-            if 'template_language' in template_structure:
-                print(f"  Language: {template_structure['template_language']}", flush=True)
-            if 'pricing_table' in template_structure and isinstance(template_structure['pricing_table'], dict):
-                if 'columns' in template_structure['pricing_table']:
-                    print(f"  Columns: {len(template_structure['pricing_table']['columns'])}", flush=True)
+            print("\nTemplate Structure Summary:", flush=True)
+            if 'company_branding' in template_structure:
+                print(f"  Company: {template_structure['company_branding'].get('company_name', 'Unknown')}", flush=True)
+                print(f"  Language: {template_structure['company_branding'].get('template_language', 'Unknown')}", flush=True)
+            if 'document_flow' in template_structure:
+                sections = template_structure['document_flow'].get('sections_in_order', [])
+                print(f"  Document Flow: {' → '.join(sections)}", flush=True)
+            if 'content_placement' in template_structure:
+                placement = template_structure['content_placement']
+                print(f"  Descriptions: {placement.get('product_descriptions', 'unknown')}", flush=True)
+                print(f"  Tech Specs: {placement.get('technical_specs', 'unknown')}", flush=True)
         
         return True
         
     except Exception as e:
-        print(f"ERROR in template analysis: {str(e)}", flush=True)
+        print(f"FATAL ERROR: {str(e)}", flush=True)
         import traceback
         traceback.print_exc()
-        
-        # Create fallback structure so generation doesn't fail
-        print("Creating fallback template structure due to error...", flush=True)
-        create_fallback_structure(template_path, output_path)
         return False
 
 if __name__ == "__main__":
-    print("Template Analysis Script Started (PROMPT 2)", flush=True)
+    print("Revised Template Analysis Script Started (DEEP STRUCTURE)", flush=True)
     
-    # Try to find template (check both DOCX and XLSX)
+    # Find template
     template_docx = os.path.join(BASE_DIR, "offer2_template.docx")
     template_xlsx = os.path.join(BASE_DIR, "offer2_template.xlsx")
     
@@ -312,18 +325,16 @@ if __name__ == "__main__":
     elif os.path.exists(template_xlsx):
         template_path = template_xlsx
     else:
-        print("ERROR: No template found (offer2_template.docx or .xlsx)", flush=True)
+        print("ERROR: No template found", flush=True)
         sys.exit(1)
     
     output_path = os.path.join(OUTPUT_FOLDER, "template_structure.json")
     
     success = analyze_template_structure(template_path, output_path)
     
-    # IMPORTANT: Always exit 0 if we created ANY structure (even fallback)
-    # This prevents the generation step from failing completely
-    if os.path.exists(output_path):
-        print("COMPLETED (template_structure.json exists)", flush=True)
-        sys.exit(0)
-    else:
-        print("FAILED (no template_structure.json created)", flush=True)
+    if not success:
+        print("Template analysis failed", flush=True)
         sys.exit(1)
+    
+    print("COMPLETED SUCCESSFULLY (REVISED PROMPT 2)", flush=True)
+    sys.exit(0)
