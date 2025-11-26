@@ -13,4 +13,4 @@ services:
     plan: free
     autoDeploy: true
     healthCheckPath: /
-    startCommand: gunicorn api:app --workers 1 --threads 2 --timeout 600 --bind 0.0.0.0:5000 --keep-alive 5 --graceful-timeout 30
+    startCommand: gunicorn api:app --workers 1 --threads 2 --timeout 900 --bind 0.0.0.0:5000 --keep-alive 5 --graceful-timeout 30
