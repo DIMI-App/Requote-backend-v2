@@ -47,12 +47,8 @@ processing_status = {
     'items': [],
     'started_at': None,
     'updated_at': None,
-    'file_format': None,
-    'system': 'sv12'  # 'sv12' or 'flexible'
+    'file_format': None
 }
-
-# Template cache for flexible system
-template_structure_cache = {}
 
 def allowed_file(filename, allowed_extensions):
     """Check if file extension is allowed"""
@@ -202,32 +198,27 @@ def after_request(response):
 def home():
     return jsonify({
         'message': 'Requote AI Backend is running!',
-        'version': 'SV12-Flexible-Hybrid',
+        'version': 'SV12-Stable',
         'status': 'healthy',
-        'systems': {
-            'sv12': 'Stable hardcoded system (backup)',
-            'flexible': 'New GPT-driven 3-prompt system'
-        },
         'supported_formats': {
             'offer1': list(ALLOWED_OFFER1_EXTENSIONS),
             'offer2': list(ALLOWED_OFFER2_EXTENSIONS)
         }
     })
 
-def process_file_background_sv12(filepath, file_extension):
-    """Background processing using SV12 (original hardcoded system)"""
+def process_file_background(filepath, file_extension):
+    """Background processing using SV12 stable extraction"""
     global processing_status
     
     try:
         with _status_lock:
             processing_status['status'] = 'processing'
-            processing_status['message'] = f'Processing {file_extension.upper()} file with SV12...'
+            processing_status['message'] = f'Processing {file_extension.upper()} file...'
             processing_status['file_format'] = file_extension
-            processing_status['system'] = 'sv12'
             processing_status['started_at'] = time.time()
             processing_status['updated_at'] = time.time()
         
-        print("=== SV12 BACKGROUND PROCESSING STARTED ===", flush=True)
+        print("=== BACKGROUND PROCESSING STARTED ===", flush=True)
         
         pdf_path = os.path.join(UPLOAD_FOLDER, 'offer1.pdf')
         
@@ -246,7 +237,7 @@ def process_file_background_sv12(filepath, file_extension):
                 return
         
         with _status_lock:
-            processing_status['message'] = 'Extracting items (SV12)...'
+            processing_status['message'] = 'Extracting items...'
         
         items_output_path = os.path.join(OUTPUT_FOLDER, 'items_offer1.json')
         extract_script_path = os.path.join(BASE_DIR, 'extract_pdf_direct_enhanced.py')
@@ -262,7 +253,7 @@ def process_file_background_sv12(filepath, file_extension):
         if result.returncode != 0 or not os.path.exists(items_output_path):
             with _status_lock:
                 processing_status['status'] = 'error'
-                processing_status['message'] = 'Extraction failed (SV12)'
+                processing_status['message'] = 'Extraction failed'
             return
         
         with open(items_output_path, 'r', encoding='utf-8') as f:
@@ -272,102 +263,20 @@ def process_file_background_sv12(filepath, file_extension):
         
         with _status_lock:
             processing_status['status'] = 'completed'
-            processing_status['message'] = f'Successfully extracted {len(items)} items (SV12)'
+            processing_status['message'] = f'Successfully extracted {len(items)} items'
             processing_status['items_count'] = len(items)
             processing_status['items'] = items
             processing_status['updated_at'] = time.time()
         
     except Exception as e:
-        print(f"=== SV12 ERROR: {str(e)} ===", flush=True)
+        print(f"=== ERROR: {str(e)} ===", flush=True)
         with _status_lock:
             processing_status['status'] = 'error'
-            processing_status['message'] = f'SV12 error: {str(e)}'
-
-def process_file_background_flexible(filepath, file_extension):
-    """Background processing using FLEXIBLE 3-PROMPT SYSTEM"""
-    global processing_status
-    
-    try:
-        with _status_lock:
-            processing_status['status'] = 'processing'
-            processing_status['message'] = f'Processing {file_extension.upper()} file with Flexible System...'
-            processing_status['file_format'] = file_extension
-            processing_status['system'] = 'flexible'
-            processing_status['started_at'] = time.time()
-            processing_status['updated_at'] = time.time()
-        
-        print("=== FLEXIBLE SYSTEM BACKGROUND PROCESSING STARTED ===", flush=True)
-        
-        # STEP 1: Convert to PDF if needed
-        pdf_path = os.path.join(UPLOAD_FOLDER, 'offer1.pdf')
-        
-        if file_extension == 'pdf':
-            if filepath != pdf_path:
-                shutil.copy(filepath, pdf_path)
-        else:
-            with _status_lock:
-                processing_status['message'] = f'Converting {file_extension.upper()} to PDF...'
-            
-            conversion_success = convert_to_pdf_python(filepath, pdf_path, file_extension)
-            if not conversion_success:
-                with _status_lock:
-                    processing_status['status'] = 'error'
-                    processing_status['message'] = f'Failed to convert {file_extension.upper()}'
-                return
-        
-        # STEP 2: Extract using PROMPT 1 (extract_pdf_direct_enhanced_v2.py)
-        with _status_lock:
-            processing_status['message'] = 'Extracting with PROMPT 1 (Flexible)...'
-        
-        extract_script_path = os.path.join(BASE_DIR, 'extract_pdf_direct_enhanced_v2.py')
-        
-        print("Running PROMPT 1 extraction...", flush=True)
-        result = subprocess.run(
-            ['python', extract_script_path],
-            capture_output=True,
-            text=True,
-            cwd=BASE_DIR,
-            timeout=300
-        )
-        
-        if result.stdout:
-            print(result.stdout, flush=True)
-        if result.stderr:
-            print(result.stderr, flush=True)
-        
-        items_output_path = os.path.join(OUTPUT_FOLDER, 'items_offer1.json')
-        
-        if result.returncode != 0 or not os.path.exists(items_output_path):
-            with _status_lock:
-                processing_status['status'] = 'error'
-                processing_status['message'] = 'PROMPT 1 extraction failed'
-            return
-        
-        with open(items_output_path, 'r', encoding='utf-8') as f:
-            full_data = json.load(f)
-        
-        items = full_data.get('items', [])
-        
-        print(f"✓ Extracted {len(items)} items with Flexible System", flush=True)
-        
-        with _status_lock:
-            processing_status['status'] = 'completed'
-            processing_status['message'] = f'Successfully extracted {len(items)} items (Flexible)'
-            processing_status['items_count'] = len(items)
-            processing_status['items'] = items
-            processing_status['updated_at'] = time.time()
-        
-    except Exception as e:
-        print(f"=== FLEXIBLE SYSTEM ERROR: {str(e)} ===", flush=True)
-        import traceback
-        traceback.print_exc()
-        with _status_lock:
-            processing_status['status'] = 'error'
-            processing_status['message'] = f'Flexible system error: {str(e)}'
+            processing_status['message'] = f'Error: {str(e)}'
 
 @app.route('/api/process-offer1', methods=['POST', 'OPTIONS'])
 def api_process_offer1():
-    """Process Offer 1 - supports both SV12 and Flexible systems"""
+    """Process Offer 1 - stable SV12 extraction"""
     global processing_status
     
     if request.method == 'OPTIONS':
@@ -390,9 +299,6 @@ def api_process_offer1():
                 'error': f'Unsupported file format. Allowed: {", ".join(ALLOWED_OFFER1_EXTENSIONS)}'
             }), 400
         
-        # Get system preference (default: sv12 for stability)
-        use_flexible = request.form.get('use_flexible', 'false').lower() == 'true'
-        
         file_extension = get_file_extension(file.filename)
         filename = secure_filename(file.filename)
         filepath = os.path.join(UPLOAD_FOLDER, f'offer1_original.{file_extension}')
@@ -400,7 +306,6 @@ def api_process_offer1():
         
         print(f"✓ File saved: {filepath}", flush=True)
         print(f"✓ Format: {file_extension.upper()}", flush=True)
-        print(f"✓ System: {'FLEXIBLE' if use_flexible else 'SV12'}", flush=True)
         
         # Reset status
         with _status_lock:
@@ -410,36 +315,27 @@ def api_process_offer1():
                 'items_count': 0,
                 'items': [],
                 'file_format': file_extension,
-                'system': 'flexible' if use_flexible else 'sv12',
                 'started_at': time.time(),
                 'updated_at': time.time()
             }
         
-        # Start background thread with chosen system
-        if use_flexible:
-            thread = threading.Thread(
-                target=process_file_background_flexible,
-                args=(filepath, file_extension),
-                daemon=True
-            )
-        else:
-            thread = threading.Thread(
-                target=process_file_background_sv12,
-                args=(filepath, file_extension),
-                daemon=True
-            )
+        # Start background thread
+        thread = threading.Thread(
+            target=process_file_background,
+            args=(filepath, file_extension),
+            daemon=True
+        )
         
         thread.start()
         
-        print(f"✓ Background thread started ({'FLEXIBLE' if use_flexible else 'SV12'})", flush=True)
+        print(f"✓ Background thread started", flush=True)
         print("=" * 60, flush=True)
         
         return jsonify({
             'success': True,
-            'message': f'Processing with {"Flexible" if use_flexible else "SV12"} system. Poll /api/status for updates.',
+            'message': 'Processing started. Poll /api/status for updates.',
             'status': 'processing',
-            'file_format': file_extension,
-            'system': 'flexible' if use_flexible else 'sv12'
+            'file_format': file_extension
         })
         
     except Exception as e:
@@ -461,57 +357,6 @@ def api_status():
         status_copy['elapsed_seconds'] = round(elapsed, 1)
     
     return jsonify(status_copy)
-
-@app.route('/api/analyze-template', methods=['POST', 'OPTIONS'])
-def api_analyze_template():
-    """NEW: Analyze Offer 2 template using PROMPT 2 (Flexible system only)"""
-    if request.method == 'OPTIONS':
-        return '', 204
-    
-    try:
-        print("=" * 60, flush=True)
-        print("Analyzing template with PROMPT 2", flush=True)
-        
-        # Run analyze_offer2_template.py
-        analyze_script_path = os.path.join(BASE_DIR, 'analyze_offer2_template.py')
-        
-        result = subprocess.run(
-            ['python', analyze_script_path],
-            capture_output=True,
-            text=True,
-            cwd=BASE_DIR,
-            timeout=120
-        )
-        
-        if result.stdout:
-            print(result.stdout, flush=True)
-        if result.stderr:
-            print(result.stderr, flush=True)
-        
-        template_structure_path = os.path.join(OUTPUT_FOLDER, 'template_structure.json')
-        
-        if result.returncode != 0 or not os.path.exists(template_structure_path):
-            return jsonify({
-                'error': 'Template analysis failed',
-                'details': result.stderr
-            }), 500
-        
-        with open(template_structure_path, 'r', encoding='utf-8') as f:
-            structure = json.load(f)
-        
-        print("✓ Template analyzed successfully", flush=True)
-        
-        return jsonify({
-            'success': True,
-            'message': 'Template analyzed with PROMPT 2',
-            'structure': structure
-        })
-        
-    except Exception as e:
-        print(f"ERROR in analyze-template: {str(e)}", flush=True)
-        import traceback
-        traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/upload-offer2', methods=['POST', 'OPTIONS'])
 def api_upload_offer2():
@@ -538,11 +383,7 @@ def api_upload_offer2():
         
         file_extension = get_file_extension(file.filename)
         
-        # Get system preference
-        use_flexible = request.form.get('use_flexible', 'false').lower() == 'true'
-        
         print(f"✓ Template format: {file_extension.upper()}", flush=True)
-        print(f"✓ System: {'FLEXIBLE' if use_flexible else 'SV12'}", flush=True)
         
         # Clean up old template files
         old_docx = os.path.join(BASE_DIR, 'offer2_template.docx')
@@ -580,32 +421,13 @@ def api_upload_offer2():
                     'suggestion': 'Please try uploading a DOCX template instead.'
                 }), 500
         
-        # If using flexible system, analyze template immediately
-        if use_flexible:
-            print("Analyzing template with PROMPT 2...", flush=True)
-            analyze_script_path = os.path.join(BASE_DIR, 'analyze_offer2_template.py')
-            
-            result = subprocess.run(
-                ['python', analyze_script_path],
-                capture_output=True,
-                text=True,
-                cwd=BASE_DIR,
-                timeout=120
-            )
-            
-            if result.returncode == 0:
-                print("✓ Template analyzed", flush=True)
-            else:
-                print("⚠ Template analysis failed, will retry during generation", flush=True)
-        
         print(f"✓ Template ready: {template_path}", flush=True)
         print("=" * 60, flush=True)
         
         return jsonify({
             'success': True,
             'message': f'Template uploaded successfully ({file_extension.upper()})',
-            'file_format': file_extension,
-            'analyzed': use_flexible
+            'file_format': file_extension
         })
         
     except Exception as e:
@@ -616,7 +438,7 @@ def api_upload_offer2():
 
 @app.route('/api/generate-offer', methods=['POST', 'OPTIONS'])
 def api_generate_offer():
-    """Generate offer - supports both SV12 and Flexible systems"""
+    """Generate offer - SV12 stable system"""
     if request.method == 'OPTIONS':
         return '', 204
     
@@ -625,9 +447,6 @@ def api_generate_offer():
         
         data = request.get_json() or {}
         markup = data.get('markup', 0)
-        use_flexible = data.get('use_flexible', False)
-        
-        print(f"System: {'FLEXIBLE' if use_flexible else 'SV12'}", flush=True)
         
         items_path = os.path.join(OUTPUT_FOLDER, 'items_offer1.json')
         if not os.path.exists(items_path):
@@ -665,16 +484,12 @@ def api_generate_offer():
         if os.path.exists(old_xlsx):
             os.remove(old_xlsx)
         
-        # Generate using chosen system
-        if use_flexible:
-            print("Generating with FLEXIBLE system (PROMPT 3)...", flush=True)
-            generate_script_path = os.path.join(BASE_DIR, 'generate_offer_flexible.py')
+        # Generate using stable system
+        print(f"Generating {template_format.upper()} offer...", flush=True)
+        if template_format == 'xlsx':
+            generate_script_path = os.path.join(BASE_DIR, 'generate_offer_xlsx.py')
         else:
-            print("Generating with SV12 system...", flush=True)
-            if template_format == 'xlsx':
-                generate_script_path = os.path.join(BASE_DIR, 'generate_offer_xlsx.py')
-            else:
-                generate_script_path = os.path.join(BASE_DIR, 'generate_offer_doc.py')
+            generate_script_path = os.path.join(BASE_DIR, 'generate_offer_doc.py')
         
         result = subprocess.run(
             ['python', generate_script_path],
@@ -705,15 +520,14 @@ def api_generate_offer():
             full_data = json.load(f)
             items = full_data.get('items', [])
         
-        print(f"✓ Offer generated successfully with {'FLEXIBLE' if use_flexible else 'SV12'}", flush=True)
+        print(f"✓ Offer generated successfully", flush=True)
         
         return jsonify({
             'success': True,
             'message': 'Offer generated successfully',
             'download_url': '/api/download-offer',
             'items_count': len(items),
-            'output_format': template_format,
-            'system': 'flexible' if use_flexible else 'sv12'
+            'output_format': template_format
         })
         
     except Exception as e:
@@ -788,11 +602,8 @@ def apply_markup_to_items(items, markup_percent):
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     print("=" * 60)
-    print("Starting Requote AI Backend - SV12 + Flexible Hybrid")
+    print("Starting Requote AI Backend - SV12 Stable")
     print(f"Server at: http://0.0.0.0:{port}")
-    print(f"Systems available:")
-    print(f"  - SV12: Stable hardcoded system (default)")
-    print(f"  - Flexible: New GPT-driven 3-prompt system")
     print(f"Supported formats: {', '.join(ALLOWED_OFFER1_EXTENSIONS)}")
     print("=" * 60)
     app.run(debug=True, host='0.0.0.0', port=port)
