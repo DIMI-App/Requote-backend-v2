@@ -601,7 +601,7 @@ def execute_recomposition_docx(template_path, extraction_data, recomposition_pla
                     
                     print(f"    ✓ Inserted technical description", flush=True)
                 
-                # Insert technical specifications
+                # Insert technical specifications - FIX: Don't use 'List Bullet' style
                 if tech_specs and len(tech_specs) > 0:
                     spec_para = doc.add_paragraph()
                     run = spec_para.add_run("Technical Specifications")
@@ -615,13 +615,14 @@ def execute_recomposition_docx(template_path, extraction_data, recomposition_pla
                         value = spec.get('value', '')
                         unit = spec.get('unit', '')
                         
-                        spec_text = f"{param}: {value}"
+                        spec_text = f"• {param}: {value}"
                         if unit:
                             spec_text += f" {unit}"
                         
-                        spec_item = doc.add_paragraph(spec_text, style='List Bullet')
-                        for run in spec_item.runs:
-                            run.font.size = Pt(10)
+                        # FIX: Create normal paragraph with bullet character instead of using style
+                        spec_item = doc.add_paragraph()
+                        spec_run = spec_item.add_run(spec_text)
+                        spec_run.font.size = Pt(10)
                         table_parent.insert(table_index, spec_item._element)
                         table_index += 1
                     
