@@ -2,7 +2,6 @@ import os
 import sys
 import json
 import openai
-import fitz
 from docx import Document
 import openpyxl
 
@@ -12,183 +11,189 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 OUTPUT_FOLDER = os.path.join(BASE_DIR, 'outputs')
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
-# REVISED PROMPT 2: DEEP TEMPLATE STRUCTURE ANALYSIS
-TEMPLATE_ANALYSIS_PROMPT = """You are analyzing a company's quotation template to understand its COMPLETE structure, not just the pricing table.
+# NEW PROMPT 2: FUNCTIONAL TEMPLATE ANALYSIS
+TEMPLATE_ANALYSIS_PROMPT = """PROMPT 2: FUNCTIONAL TEMPLATE ANALYSIS (OFFER 2)
 
-YOUR TASK: Understand this template like a human sales manager who needs to fill it out manually.
+================================================================================
+UNDERSTAND TEMPLATE STRUCTURE
+================================================================================
 
-ANALYZE THESE ASPECTS:
+Read this template document and answer:
 
-1. DOCUMENT FLOW & SECTIONS
-   - What comes first? (Company header, logo, client address section?)
-   - What's the sequence? (Header → Intro text → Technical specs → Pricing table → Optional items → Terms?)
-   - How many distinct sections are there?
-   - What is the narrative flow?
+1. BASIC STRUCTURE
+   - How many pages?
+   - What are the main sections?
+   - Is it formal/informal in tone?
+   - Text-heavy or table-heavy?
 
-2. COMPANY BRANDING
-   - Company name and location
-   - Logo position (if visible)
-   - Header style (letterhead, simple text, formatted box?)
-   - Contact information placement
-   - Brand colors or styling
+2. VISUAL STYLE
+   - Font types and sizes
+   - Colors used (if any)
+   - Borders, frames, shading
+   - Image formatting style
 
-3. CONTENT PLACEMENT STRATEGY
-   - WHERE do product descriptions go?
-     * Before pricing table as paragraphs?
-     * Inside table description column?
-     * After table as appendix?
-     * Separate technical section?
-   
-   - WHERE do technical specifications go?
-     * Integrated in descriptions?
-     * Separate specifications table?
-     * Bullet points before/after main table?
-     * Technical data sheet at end?
-   
-   - WHERE do images/photos go?
-     * Inline with descriptions?
-     * Separate section at end?
-     * Next to each item?
-     * Not included?
-   
-   - WHERE do feature lists go?
-     * Bullet points in description?
-     * Separate "Features" section?
-     * Integrated in table?
+3. ORGANIZATIONAL PATTERN
+   - How is information laid out?
+   - What gets emphasized (bold, large text)?
+   - Are sections clearly separated or flowing?
 
-4. PRICING TABLE STRUCTURE
-   - Table location in document (after what? before what?)
-   - Column headers (exact text, in what language)
-   - Column count and purposes
-   - How are categories shown? (header rows? separate sections?)
-   - How are optional items shown? (separate table? marked in main table?)
-   - Currency format (€1.234,56 or $1,234.56)
-   - Number formatting
+Provide your understanding in simple language first.
 
-5. TEXT SECTIONS
-   - Is there introductory text before table?
-   - Are there explanatory paragraphs between sections?
-   - Is there a conclusion/summary after table?
-   - Payment terms location?
-   - Delivery terms location?
+================================================================================
+IDENTIFY FUNCTIONAL SECTIONS
+================================================================================
 
-6. SPECIAL SECTIONS
-   - "Included" items section?
-   - "Optional" or "Accessories" section?
-   - "Exclusions" section?
-   - Terms and conditions?
-   - Warranty information?
+Now map each section by its FUNCTION in the quotation, not by its content.
 
-7. FORMATTING PATTERNS
-   - Font family used
-   - How are section headers formatted? (bold, size, color)
-   - How is body text formatted?
-   - Line spacing and margins
-   - Use of colors (headers, borders, backgrounds)
+Every B2B quotation has these universal functions - find them in this template:
 
-8. MULTI-LANGUAGE DETECTION
-   - What language is the template in?
-   - Are there any bilingual elements?
+FUNCTION 1: HEADER/COMPANY INFO - Company branding, offer identification
+FUNCTION 2: MAIN EQUIPMENT TITLE - Primary product name (most prominent)
+FUNCTION 3: CAPACITY/PERFORMANCE SUMMARY - Key metrics at glance
+FUNCTION 4: TECHNICAL SPECIFICATIONS - Detailed parameters with values
+FUNCTION 5: TECHNICAL DESCRIPTION - Narrative explanation of functionality
+FUNCTION 6: PRICING SECTION - Items with quantities and prices
+FUNCTION 7: ADDITIONAL/OPTIONAL ITEMS - Accessories, options
+FUNCTION 8: PACKING/TRANSPORT - Packaging costs/info
+FUNCTION 9: EXCLUSIONS - What is NOT included
+FUNCTION 10: COMMERCIAL TERMS - Payment, delivery, warranty
+FUNCTION 11: CERTIFICATIONS - Standards compliance
+FUNCTION 12: IMAGES/PHOTOS - Equipment visuals
 
-CRITICAL: Your analysis must be detailed enough that another person could recreate this template's EXACT structure and flow from your description.
+For EACH function you find, document:
+- LOCATION: Where is it in document?
+- FORMAT: How is it structured?
+- CURRENT CONTENT: What's there now (examples)
+- ACTION: What to do with Offer 1 data
+- STYLE: Font, size, alignment, formatting
 
-Return comprehensive JSON that maps the complete document structure.
+================================================================================
+OUTPUT FORMAT
+================================================================================
 
-NOW ANALYZE THIS TEMPLATE:
+Return complete analysis as JSON:
 
-Return JSON with this structure:
 {
-  "document_flow": {
-    "sections_in_order": ["header", "intro_text", "technical_description", "pricing_table", "optional_items", "terms"],
-    "narrative_style": "formal_technical / sales_oriented / minimal"
+  "template_structure": {
+    "total_pages": 2,
+    "style": "formal industrial / casual / mixed",
+    "formatting": "plaintext / tables / mixed",
+    "fonts": "Font names and sizes",
+    "visual_style": "minimal / colorful / branded"
   },
-  "company_branding": {
-    "company_name": "...",
-    "template_language": "EN/UK/IT/ES/DE/FR",
-    "header_style": "description"
-  },
-  "content_placement": {
-    "product_descriptions": "before_table / in_table_column / after_table / separate_section",
-    "technical_specs": "in_description / separate_specs_table / bullet_points / technical_data_sheet",
-    "images": "inline / after_table / not_included / separate_page",
-    "feature_lists": "bullets_in_description / separate_features_section / in_table"
-  },
-  "pricing_table": {
-    "location": "after_technical_description",
-    "columns": [
-      {"name": "POS.", "purpose": "position_number"},
-      {"name": "DESCRIPTION", "purpose": "item_description"},
-      {"name": "Q.", "purpose": "quantity"},
-      {"name": "UNIT PRICE", "purpose": "unit_price"},
-      {"name": "TOTAL", "purpose": "total_price"}
-    ],
-    "categories_shown_as": "bold_header_rows / separate_tables / column",
-    "optional_items": "separate_section_after_main / marked_in_main_table / separate_table",
-    "currency_format": "€1.234,56"
-  },
-  "text_sections": {
-    "has_intro_before_table": true/false,
-    "intro_content_type": "product_overview / company_intro / order_details",
-    "has_text_between_sections": true/false,
-    "has_conclusion_after_table": true/false,
-    "payment_terms_location": "header_box / after_table / separate_section",
-    "delivery_terms_location": "header_box / after_table / separate_section"
-  },
-  "special_sections": {
-    "has_exclusions_section": true/false,
-    "has_warranty_section": true/false,
-    "has_technical_data_table": true/false,
-    "technical_data_location": "before_pricing / after_pricing / separate_page"
-  },
-  "formatting_guide": {
-    "primary_font": "Arial / Calibri / Times",
-    "header_formatting": "bold_12pt / bold_colored_14pt",
-    "body_text_formatting": "normal_10pt / normal_11pt",
-    "emphasis_color": "#HEX if any"
+
+  "functional_sections": [
+    {
+      "function": "header_company_info",
+      "location": "page 1, top",
+      "format": "plaintext lines",
+      "contains": ["company_name", "offer_number", "date"],
+      "action": "keep_as_is",
+      "update_only": ["date", "offer_number"],
+      "style": {
+        "font": "default",
+        "size": 11,
+        "alignment": "left"
+      }
+    },
+    
+    {
+      "function": "main_equipment_title",
+      "location": "exact location",
+      "format": "describe format",
+      "recognition_clues": "how to identify this section",
+      "current_content_example": "first line of current content",
+      "action": "replace_entire_block",
+      "replace_with": "main_equipment.name from Offer 1",
+      "style": {
+        "font": "font name",
+        "size": 14,
+        "bold": true,
+        "uppercase": true
+      }
+    },
+    
+    {
+      "function": "pricing_section",
+      "location": "main body",
+      "format": "table with X columns",
+      "columns": ["Position", "Description", "Qty", "Unit Price", "Total"],
+      "current_items_count": X,
+      "price_format": "€ X.XXX or other",
+      "action": "delete_all_and_rebuild",
+      "style": {
+        "uses_pos_numbers": true/false,
+        "price_alignment": "right"
+      }
+    }
+  ],
+
+  "critical_formatting_rules": {
+    "uppercase_section_headers": true/false,
+    "price_format": "exact format with example",
+    "uses_tables": true/false,
+    "uses_pos_numbering": true/false,
+    "line_spacing": "single / double",
+    "alignment": "primary alignment style"
   }
 }
+
+================================================================================
+CRITICAL INSTRUCTIONS
+================================================================================
+
+✅ DO:
+- Focus on FUNCTION not content
+- "Pricing section" is "pricing section" regardless of what's being sold
+- Describe FORMAT precisely (alignment, fonts, spacing)
+- Note how to RECOGNIZE each section
+- Document style rules exactly
+
+❌ DON'T:
+- Don't make assumptions based on industry
+- Don't mention specific products from template
+- Don't describe what SHOULD be there
+- Don't invent structure that doesn't exist
+
+The goal: Create a MAP showing WHERE each function is, WHAT FORMAT it uses, and HOW to maintain style.
+
+Now analyze this template:
 """
 
 def analyze_docx_template(template_path):
-    """Deep analysis of DOCX template structure"""
+    """Analyze DOCX template structure"""
     try:
-        print("Analyzing DOCX template structure...", flush=True)
         doc = Document(template_path)
         
         analysis_text = f"\nTEMPLATE TYPE: DOCX\n"
         analysis_text += f"TOTAL PARAGRAPHS: {len(doc.paragraphs)}\n"
         analysis_text += f"TOTAL TABLES: {len(doc.tables)}\n\n"
         
-        # Extract document flow
-        analysis_text += "DOCUMENT STRUCTURE:\n"
-        
-        # First 20 paragraphs (to understand header and intro)
-        analysis_text += "\nFIRST 20 PARAGRAPHS (Headers and intro):\n"
+        # First 20 paragraphs
+        analysis_text += "FIRST 20 PARAGRAPHS:\n"
         for i, para in enumerate(doc.paragraphs[:20]):
             if para.text.strip():
                 style = para.style.name if para.style else "Normal"
                 analysis_text += f"  Para {i+1} [{style}]: {para.text[:100]}\n"
         
-        # Analyze all tables
-        analysis_text += f"\nTABLES ANALYSIS ({len(doc.tables)} total):\n"
-        for table_idx, table in enumerate(doc.tables):
-            analysis_text += f"\n  Table {table_idx + 1}:\n"
+        # All tables
+        analysis_text += f"\nTABLES ({len(doc.tables)} total):\n"
+        for idx, table in enumerate(doc.tables):
+            analysis_text += f"\n  Table {idx + 1}:\n"
             analysis_text += f"    Rows: {len(table.rows)}, Columns: {len(table.columns)}\n"
             
-            # Get header row
             if table.rows:
                 headers = [cell.text[:30] for cell in table.rows[0].cells]
                 analysis_text += f"    Headers: {' | '.join(headers)}\n"
             
-            # Sample first 3 data rows
             if len(table.rows) > 1:
                 analysis_text += f"    Sample rows:\n"
                 for row_idx in range(1, min(4, len(table.rows))):
                     row_data = [cell.text[:20] for cell in table.rows[row_idx].cells]
                     analysis_text += f"      Row {row_idx}: {' | '.join(row_data)}\n"
         
-        # Last 10 paragraphs (to understand footer/terms)
-        analysis_text += "\nLAST 10 PARAGRAPHS (Footer and terms):\n"
+        # Last 10 paragraphs
+        analysis_text += "\nLAST 10 PARAGRAPHS:\n"
         for i, para in enumerate(doc.paragraphs[-10:]):
             if para.text.strip():
                 analysis_text += f"  Para {len(doc.paragraphs) - 10 + i + 1}: {para.text[:100]}\n"
@@ -196,13 +201,11 @@ def analyze_docx_template(template_path):
         return analysis_text
         
     except Exception as e:
-        print(f"Error analyzing DOCX: {e}", flush=True)
         return f"Error analyzing DOCX: {str(e)}"
 
 def analyze_xlsx_template(template_path):
-    """Deep analysis of XLSX template structure"""
+    """Analyze XLSX template structure"""
     try:
-        print("Analyzing XLSX template structure...", flush=True)
         workbook = openpyxl.load_workbook(template_path)
         sheet = workbook.active
         
@@ -210,7 +213,6 @@ def analyze_xlsx_template(template_path):
         analysis_text += f"SHEET: {sheet.title}\n"
         analysis_text += f"DIMENSIONS: {sheet.max_row} rows x {sheet.max_column} cols\n\n"
         
-        # Get all non-empty rows
         analysis_text += "SHEET STRUCTURE:\n"
         for row_idx in range(1, min(30, sheet.max_row + 1)):
             row = sheet[row_idx]
@@ -222,13 +224,12 @@ def analyze_xlsx_template(template_path):
         return analysis_text
         
     except Exception as e:
-        print(f"Error analyzing XLSX: {e}", flush=True)
         return f"Error analyzing XLSX: {str(e)}"
 
 def analyze_template_structure(template_path, output_path):
-    """Main analysis function"""
+    """Main analysis function with NEW PROMPT 2"""
     try:
-        print("=== STARTING DEEP TEMPLATE ANALYSIS (REVISED PROMPT 2) ===", flush=True)
+        print("=== STARTING FUNCTIONAL TEMPLATE ANALYSIS (NEW PROMPT 2) ===", flush=True)
         
         if not openai.api_key:
             print("ERROR: OPENAI_API_KEY not set", flush=True)
@@ -238,7 +239,6 @@ def analyze_template_structure(template_path, output_path):
             print(f"ERROR: Template not found: {template_path}", flush=True)
             return False
         
-        # Determine file type
         file_ext = template_path.lower().split('.')[-1]
         print(f"Template type: {file_ext}", flush=True)
         
@@ -254,8 +254,7 @@ def analyze_template_structure(template_path, output_path):
         # Build full prompt
         full_prompt = TEMPLATE_ANALYSIS_PROMPT + "\n\n" + structure_info
         
-        print("Calling GPT-4o for deep template analysis...", flush=True)
-        print(f"Prompt length: {len(full_prompt)} characters", flush=True)
+        print("Calling GPT-4o with NEW PROMPT 2...", flush=True)
         
         response = openai.ChatCompletion.create(
             model="gpt-4o",
@@ -279,7 +278,7 @@ def analyze_template_structure(template_path, output_path):
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
         
         output_data = {
-            "analysis_method": "REVISED_PROMPT_2_Deep_Structure",
+            "analysis_method": "NEW_PROMPT_2_Functional",
             "template_file": template_path,
             "template_type": file_ext,
             "structure": template_structure
@@ -288,33 +287,31 @@ def analyze_template_structure(template_path, output_path):
         with open(output_path, 'w', encoding='utf-8') as f:
             json.dump(output_data, f, indent=2, ensure_ascii=False)
         
-        print(f"✓ Deep template analysis saved: {output_path}", flush=True)
-        print("=== TEMPLATE ANALYSIS COMPLETED ===", flush=True)
+        print(f"✓ Functional template analysis saved: {output_path}", flush=True)
         
         # Print summary
         if isinstance(template_structure, dict):
-            print("\nTemplate Structure Summary:", flush=True)
-            if 'company_branding' in template_structure:
-                print(f"  Company: {template_structure['company_branding'].get('company_name', 'Unknown')}", flush=True)
-                print(f"  Language: {template_structure['company_branding'].get('template_language', 'Unknown')}", flush=True)
-            if 'document_flow' in template_structure:
-                sections = template_structure['document_flow'].get('sections_in_order', [])
-                print(f"  Document Flow: {' → '.join(sections)}", flush=True)
-            if 'content_placement' in template_structure:
-                placement = template_structure['content_placement']
-                print(f"  Descriptions: {placement.get('product_descriptions', 'unknown')}", flush=True)
-                print(f"  Tech Specs: {placement.get('technical_specs', 'unknown')}", flush=True)
+            print("\nTemplate Summary:", flush=True)
+            ts = template_structure.get('template_structure', {})
+            print(f"  Pages: {ts.get('total_pages', 'N/A')}", flush=True)
+            print(f"  Style: {ts.get('style', 'N/A')}", flush=True)
+            
+            sections = template_structure.get('functional_sections', [])
+            print(f"  Functional sections found: {len(sections)}", flush=True)
+            for section in sections[:5]:
+                print(f"    - {section.get('function', 'unknown')}", flush=True)
         
+        print("=== FUNCTIONAL ANALYSIS COMPLETED (NEW PROMPT 2) ===", flush=True)
         return True
         
     except Exception as e:
-        print(f"FATAL ERROR: {str(e)}", flush=True)
+        print(f"ERROR: {str(e)}", flush=True)
         import traceback
         traceback.print_exc()
         return False
 
 if __name__ == "__main__":
-    print("Revised Template Analysis Script Started (DEEP STRUCTURE)", flush=True)
+    print("Functional Template Analysis (NEW PROMPT 2)", flush=True)
     
     # Find template
     template_docx = os.path.join(BASE_DIR, "offer2_template.docx")
@@ -331,10 +328,4 @@ if __name__ == "__main__":
     output_path = os.path.join(OUTPUT_FOLDER, "template_structure.json")
     
     success = analyze_template_structure(template_path, output_path)
-    
-    if not success:
-        print("Template analysis failed", flush=True)
-        sys.exit(1)
-    
-    print("COMPLETED SUCCESSFULLY (REVISED PROMPT 2)", flush=True)
-    sys.exit(0)
+    sys.exit(0 if success else 1)
