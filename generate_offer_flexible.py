@@ -214,7 +214,7 @@ def load_extraction_data():
         with open(ITEMS_PATH, 'r', encoding='utf-8') as f:
             return json.load(f)
     except Exception as e:
-        print(f"Error loading extraction: {e}", flush=True)
+        print(f"ERROR loading extraction: {e}", flush=True)
         return None
 
 def load_template_structure():
@@ -272,6 +272,136 @@ def run_prompt_2_analysis():
         import traceback
         traceback.print_exc()
         return False
+
+def normalize_extraction_data(extraction_data):
+    """
+    CRITICAL FIX: Normalize extraction data to handle both OLD and NEW structures
+    This ensures compatibility regardless of which extraction method was used
+    """
+    print("=" * 60, flush=True)
+    print("NORMALIZING EXTRACTION DATA", flush=True)
+    print("=" * 60, flush=True)
+    
+    # Check if this is NEW structure (has extraction_method field)
+    extraction_method = extraction_data.get('extraction_method', 'UNKNOWN')
+    print(f"  Detection: {extraction_method}", flush=True)
+    
+    # If NEW structure exists (from PROMPT 1), use it
+    if extraction_data.get('pricing_items'):
+        print(f"  ✓ Found NEW structure: {len(extraction_data['pricing_items'])} pricing_items", flush=True)
+        return extraction_data
+    
+    # If OLD structure exists (from SV12), convert it to NEW structure
+    if extraction_data.get('items'):
+        print(f"  ⚠ Found OLD structure: {len(extraction_data['items'])} items", flush=True)
+        print("  → Converting OLD structure to NEW structure...", flush=True)
+        
+        old_items = extraction_data.get('items', [])
+        
+        # Convert old items to new pricing_items format
+        pricing_items = []
+        for item in old_items:
+            # Extract price value
+            unit_price_str = item.get('unit_price', '0')
+            total_price_str = item.get('total_price', '0')
+            
+            # Try to extract numeric value
+            import re
+            unit_price_numeric = 0
+            total_price_numeric = 0
+            currency = 'EUR'
+            
+            # Extract currency symbol
+            if '€' in str(unit_price_str):
+                currency = 'EUR'
+            elif '$' in str(unit_price_str):
+                currency = 'USD'
+            elif '£' in str(unit_price_str):
+                currency = 'GBP'
+            
+            # Extract numeric values
+            numbers = re.findall(r'\d+[\.,]?\d*', str(unit_price_str))
+            if numbers:
+                try:
+                    unit_price_numeric = float(numbers[0].replace(',', ''))
+                except:
+                    unit_price_numeric = 0
+            
+            numbers = re.findall(r'\d+[\.,]?\d*', str(total_price_str))
+            if numbers:
+                try:
+                    total_price_numeric = float(numbers[0].replace(',', ''))
+                except:
+                    total_price_numeric = 0
+            
+            # Determine item type from category
+            category = item.get('category', 'Main Equipment').lower()
+            if 'main' in category or 'equipment' in category:
+                item_type = 'main_equipment'
+            elif 'accessor' in category:
+                item_type = 'accessory'
+            elif 'pack' in category:
+                item_type = 'packing'
+            elif 'option' in category:
+                item_type = 'option'
+            else:
+                item_type = 'main_equipment'
+            
+            # Build new format item
+            new_item = {
+                'type': item_type,
+                'description': item.get('item_name', ''),
+                'identified_as_main_because': f"Converted from category: {item.get('category', 'unknown')}",
+                'quantity': int(item.get('quantity', 1)) if str(item.get('quantity', 1)).isdigit() else 1,
+                'unit': 'pcs',
+                'unit_price': unit_price_numeric,
+                'total': total_price_numeric,
+                'currency': currency,
+                'full_description': item.get('description', ''),
+                'specifications': item.get('specifications', ''),
+                'technical_details': item.get('details', ''),
+                'has_image': item.get('has_image', False),
+                'image_description': item.get('image_description', '')
+            }
+            
+            pricing_items.append(new_item)
+        
+        # Build normalized structure
+        normalized = {
+            'extraction_method': 'CONVERTED_FROM_SV12',
+            'context_understanding': {
+                'industry': 'industrial_equipment',
+                'main_product_category': 'machinery',
+                'offer_type': 'single_equipment_with_accessories'
+            },
+            'main_equipment': {
+                'name': pricing_items[0]['description'] if pricing_items else 'Equipment',
+                'identified_from': 'First item in converted list',
+                'reasoning': 'Converted from SV12 extraction'
+            },
+            'pricing_items': pricing_items,
+            'technical_specifications': [],
+            'technical_description': {
+                'full_text': '',
+                'identified_from': 'Not available in SV12',
+                'reasoning': 'Legacy extraction format'
+            },
+            'images': [],
+            'commercial_terms': extraction_data.get('commercial_terms', {}),
+            'pricing_summary': {},
+            'certifications': [],
+            'items': old_items  # Keep for backward compatibility
+        }
+        
+        print(f"  ✓ Converted {len(pricing_items)} items to NEW structure", flush=True)
+        print("=" * 60, flush=True)
+        
+        return normalized
+    
+    # No valid data found
+    print("  ✗ ERROR: No valid extraction data found (neither pricing_items nor items)", flush=True)
+    print("=" * 60, flush=True)
+    return None
 
 def get_recomposition_plan(extraction_data, template_structure):
     """Get intelligent recomposition plan from GPT using NEW PROMPT 3"""
@@ -348,7 +478,7 @@ def get_recomposition_plan(extraction_data, template_structure):
         return recomposition_plan
         
     except Exception as e:
-        print(f"Error getting recomposition plan: {e}", flush=True)
+        print(f"ERROR getting recomposition plan: {e}", flush=True)
         import traceback
         traceback.print_exc()
         return None
@@ -362,15 +492,12 @@ def execute_recomposition_docx(template_path, extraction_data, recomposition_pla
         
         doc = Document(template_path)
         
-        # Get pricing items from NEW structure
+        # Get pricing items from NORMALIZED structure
         pricing_items = extraction_data.get('pricing_items', [])
         
         if not pricing_items or len(pricing_items) == 0:
-            print("  ⚠ WARNING: No pricing_items found in extraction!", flush=True)
-            # Fallback to old structure if exists
-            pricing_items = extraction_data.get('items', [])
-            if pricing_items:
-                print(f"  ✓ Using fallback: {len(pricing_items)} items from old structure", flush=True)
+            print("  ✗ ERROR: No pricing_items found after normalization!", flush=True)
+            return False
         
         print(f"STEP 1: Processing {len(pricing_items)} pricing items", flush=True)
         
@@ -510,13 +637,12 @@ def execute_recomposition_docx(template_path, extraction_data, recomposition_pla
         # Group items by type
         categorized = OrderedDict()
         for item in pricing_items:
-            # Handle both NEW structure (type) and OLD structure (category)
-            item_type = item.get('type', item.get('category', 'main_equipment'))
-            item_type = item_type.replace('_', ' ').title()
+            item_type = item.get('type', 'main_equipment')
+            item_type_display = item_type.replace('_', ' ').title()
             
-            if item_type not in categorized:
-                categorized[item_type] = []
-            categorized[item_type].append(item)
+            if item_type_display not in categorized:
+                categorized[item_type_display] = []
+            categorized[item_type_display].append(item)
         
         item_counter = 1
         for category, cat_items in categorized.items():
@@ -537,30 +663,54 @@ def execute_recomposition_docx(template_path, extraction_data, recomposition_pla
                 if len(row) >= 1:
                     row[0].text = str(item_counter)
                 
-                # Description (handle both NEW and OLD structure)
+                # Description - BUILD FROM MULTIPLE FIELDS
                 if len(row) >= 2:
-                    desc = item.get('description', item.get('item_name', ''))
-                    row[1].text = desc
+                    desc_parts = []
+                    
+                    # Main description
+                    if item.get('description'):
+                        desc_parts.append(item['description'])
+                    
+                    # Full description (if different from main)
+                    if item.get('full_description') and item.get('full_description') != item.get('description'):
+                        desc_parts.append(item['full_description'])
+                    
+                    # Specifications
+                    if item.get('specifications'):
+                        desc_parts.append(f"Specifications: {item['specifications']}")
+                    
+                    # Technical details
+                    if item.get('technical_details'):
+                        desc_parts.append(item['technical_details'])
+                    
+                    # Image info
+                    if item.get('has_image') and item.get('image_description'):
+                        desc_parts.append(f"[Image: {item['image_description']}]")
+                    
+                    full_desc = "\n\n".join(desc_parts)
+                    row[1].text = full_desc
                     for para in row[1].paragraphs:
                         para.alignment = WD_ALIGN_PARAGRAPH.LEFT
                 
-                # Prices (handle both NEW and OLD structure)
+                # Unit Price
                 if len(row) >= 3:
                     unit_price = item.get('unit_price', 0)
                     currency = item.get('currency', 'EUR')
-                    if isinstance(unit_price, (int, float)):
-                        row[2].text = f"{currency} {unit_price}"
+                    if isinstance(unit_price, (int, float)) and unit_price > 0:
+                        row[2].text = f"{currency} {unit_price:,.0f}"
                     else:
                         row[2].text = str(unit_price)
                 
+                # Quantity
                 if len(row) >= 4:
                     row[3].text = str(item.get('quantity', 1))
                 
+                # Total
                 if len(row) >= 5:
-                    total = item.get('total', item.get('total_price', 0))
+                    total = item.get('total', 0)
                     currency = item.get('currency', 'EUR')
-                    if isinstance(total, (int, float)):
-                        row[4].text = f"{currency} {total}"
+                    if isinstance(total, (int, float)) and total > 0:
+                        row[4].text = f"{currency} {total:,.0f}"
                     else:
                         row[4].text = str(total)
                 
@@ -582,7 +732,7 @@ def execute_recomposition_docx(template_path, extraction_data, recomposition_pla
         return True
         
     except Exception as e:
-        print(f"ERROR: {e}", flush=True)
+        print(f"ERROR in execute_recomposition_docx: {e}", flush=True)
         import traceback
         traceback.print_exc()
         return False
@@ -603,6 +753,12 @@ def generate_offer_flexible():
             return False
         
         print(f"✓ Loaded extraction data", flush=True)
+        
+        # CRITICAL FIX: Normalize data structure
+        extraction_data = normalize_extraction_data(extraction_data)
+        if not extraction_data:
+            print("ERROR: Data normalization failed", flush=True)
+            return False
         
         # STEP 2: Load template structure - AUTO-RUN PROMPT 2 IF MISSING
         template_structure = load_template_structure()
@@ -673,7 +829,7 @@ def generate_offer_flexible():
             return False
         
     except Exception as e:
-        print(f"FATAL ERROR: {e}", flush=True)
+        print(f"FATAL ERROR in generate_offer_flexible: {e}", flush=True)
         import traceback
         traceback.print_exc()
         return False
