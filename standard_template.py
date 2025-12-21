@@ -48,42 +48,61 @@ class Offer3Template:
             return False
         
         try:
+            # Load template document
             from docx import Document as DocxDocument
+            from copy import deepcopy
+            
             template_doc = DocxDocument(template_path)
             
-            # Copy header from each section
-            for section_idx, template_section in enumerate(template_doc.sections):
-                # Get or create corresponding section in our document
-                if section_idx >= len(self.doc.sections):
-                    self.doc.add_section()
+            print(f"Template has {len(template_doc.sections)} section(s)", flush=True)
+            
+            # Ensure our document has at least one section
+            if len(self.doc.sections) == 0:
+                self.doc.add_section()
+            
+            # Copy from first section (most documents have just 1 section)
+            template_section = template_doc.sections[0]
+            our_section = self.doc.sections[0]
+            
+            # Copy HEADER
+            print("Copying header...", flush=True)
+            if template_section.header:
+                # Get the header XML element
+                template_header_element = template_section.header._element
+                our_header_element = our_section.header._element
                 
-                our_section = self.doc.sections[section_idx]
+                # Clear our header first
+                our_header_element.clear()
                 
-                # Copy header
-                if template_section.header:
-                    print(f"Copying header from section {section_idx + 1}...", flush=True)
-                    
-                    # Clear existing header
-                    our_section.header._element.clear_content()
-                    
-                    # Copy all header content
-                    for element in template_section.header._element:
-                        our_section.header._element.append(element)
-                    
-                    print(f"✓ Header copied from section {section_idx + 1}", flush=True)
+                # Copy each child element from template header
+                for child in template_header_element:
+                    # Deep copy to avoid reference issues
+                    copied_child = deepcopy(child)
+                    our_header_element.append(copied_child)
                 
-                # Copy footer
-                if template_section.footer:
-                    print(f"Copying footer from section {section_idx + 1}...", flush=True)
-                    
-                    # Clear existing footer
-                    our_section.footer._element.clear_content()
-                    
-                    # Copy all footer content
-                    for element in template_section.footer._element:
-                        our_section.footer._element.append(element)
-                    
-                    print(f"✓ Footer copied from section {section_idx + 1}", flush=True)
+                print("✓ Header copied successfully", flush=True)
+            else:
+                print("⚠ No header found in template", flush=True)
+            
+            # Copy FOOTER
+            print("Copying footer...", flush=True)
+            if template_section.footer:
+                # Get the footer XML element
+                template_footer_element = template_section.footer._element
+                our_footer_element = our_section.footer._element
+                
+                # Clear our footer first
+                our_footer_element.clear()
+                
+                # Copy each child element from template footer
+                for child in template_footer_element:
+                    # Deep copy to avoid reference issues
+                    copied_child = deepcopy(child)
+                    our_footer_element.append(copied_child)
+                
+                print("✓ Footer copied successfully", flush=True)
+            else:
+                print("⚠ No footer found in template", flush=True)
             
             print("=" * 60, flush=True)
             return True
