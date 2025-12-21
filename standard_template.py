@@ -232,20 +232,7 @@ class Offer3Template:
         """
         
         info_table = self.doc.add_table(rows=4, cols=2)
-        
-        # Don't rely on built-in styles - they may not exist in all templates
-        # Instead, apply formatting manually
-        try:
-            info_table.style = 'Light Grid Accent 1'
-        except:
-            # Fallback: apply basic table styling manually
-            info_table.style = 'Table Grid'
-            # Add blue header color to first column
-            for row in info_table.rows:
-                # Make first cell (label) have blue background
-                cell = row.cells[0]
-                shading_elm = self._get_or_create_shading(cell)
-                shading_elm.set(qn('w:fill'), self.color_header_bg)
+        # Don't set any style - just use default
         
         # Set column widths
         for row in info_table.rows:
@@ -289,7 +276,7 @@ class Offer3Template:
         
         # Create table with header row
         pricing_table = self.doc.add_table(rows=1, cols=5)
-        pricing_table.style = 'Light Grid Accent 1'
+        # Don't set style - use default
         
         # Set column widths
         pricing_table.columns[0].width = Inches(0.5)   # No.
@@ -369,7 +356,7 @@ class Offer3Template:
         run.font.size = Pt(self.font_size_header)
         run.font.bold = True
         run.font.name = self.font_name
-        heading.style = 'Heading 1'
+        # Don't set style - formatting already applied above
         
         self.doc.add_paragraph()
         
@@ -438,7 +425,7 @@ class Offer3Template:
         run.font.size = Pt(self.font_size_header)
         run.font.bold = True
         run.font.name = self.font_name
-        heading.style = 'Heading 1'
+        # Don't set style - formatting already applied above
         
         self.doc.add_paragraph()
         
