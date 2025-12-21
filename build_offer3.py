@@ -82,13 +82,27 @@ def generate_offer3(company_data_path, items_data_path, output_path):
                 has_header = False
                 
                 if section.header:
-                    # Check if header has content
+                    # Check if header has text content
                     for para in section.header.paragraphs:
                         if para.text.strip():
                             has_header = True
                             break
+                    
+                    # Check if header has tables
                     if not has_header and len(section.header.tables) > 0:
                         has_header = True
+                    
+                    # Check if header has images/shapes (logo)
+                    if not has_header:
+                        # Check for images in header relationships
+                        try:
+                            for rel in section.header.part.rels.values():
+                                if "image" in rel.target_ref.lower():
+                                    has_header = True
+                                    print(f"  → Section {idx + 1} header contains image", flush=True)
+                                    break
+                        except:
+                            pass
                 
                 if has_header:
                     section_with_header = idx
@@ -220,7 +234,7 @@ def generate_offer3(company_data_path, items_data_path, output_path):
         
         # 1. Document info table
         print("  → Adding document info...", flush=True)
-        template_helper.add_document_info(quote_number, quote_date, valid_until, "[Customer Name]")
+        template_helper.add_document_info_table(quote_number, quote_date, valid_until, "[Customer Name]")
         
         # 2. Pricing table
         print("  → Adding pricing table...", flush=True)
