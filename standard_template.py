@@ -38,6 +38,15 @@ class Offer3Template:
         Replicates the exact header from Offer 2
         """
         
+        print("\n" + "=" * 60, flush=True)
+        print("ADDING HEADER SECTION", flush=True)
+        print("=" * 60, flush=True)
+        
+        # Debug: Show what we received
+        print(f"Company name: {company_data.get('company_name', 'MISSING')}", flush=True)
+        print(f"Address: {company_data.get('address', 'MISSING')[:50] if company_data.get('address') else 'MISSING'}...", flush=True)
+        print(f"Logo present: {bool(company_data.get('logo'))}", flush=True)
+        
         # Add logo if available
         if company_data.get('logo') and company_data['logo'].get('data'):
             try:
@@ -57,37 +66,50 @@ class Offer3Template:
                 logo_para.alignment = WD_ALIGN_PARAGRAPH.LEFT
                 run = logo_para.add_run()
                 
-                # Add logo with original sizing (max 2 inches wide)
-                run.add_picture(temp_logo_path, width=Inches(2.0))
+                # Add logo with original sizing (max 2.5 inches wide)
+                run.add_picture(temp_logo_path, width=Inches(2.5))
                 
-                print(f"✓ Logo added to header", flush=True)
+                print(f"✓ Logo added to header ({len(logo_bytes)} bytes, {logo_format})", flush=True)
+                
+                # Clean up temp file
+                try:
+                    os.remove(temp_logo_path)
+                except:
+                    pass
                 
             except Exception as e:
                 print(f"⚠ Could not add logo: {str(e)}", flush=True)
+        else:
+            print("⚠ No logo data available", flush=True)
         
-        # Company information table (2 columns: left for info, right for spacing)
-        info_table = self.doc.add_table(rows=1, cols=1)
-        info_table.style = 'Table Grid'
-        
-        # Remove borders
-        self._remove_table_borders(info_table)
-        
-        cell = info_table.rows[0].cells[0]
-        
-        # Company name
-        if company_data.get('company_name'):
-            p = cell.add_paragraph()
-            run = p.add_run(company_data['company_name'])
+        # Company information section
+        # Company name - ALWAYS show, use placeholder if missing
+        company_name = company_data.get('company_name', '[COMPANY NAME]')
+        if company_name and company_name.strip():
+            p = self.doc.add_paragraph()
+            run = p.add_run(company_name)
+            run.font.size = Pt(self.font_size_header)
+            run.font.bold = True
+            run.font.name = self.font_name
+            print(f"✓ Added company name: {company_name}", flush=True)
+        else:
+            print("✗ Company name missing - using placeholder", flush=True)
+            p = self.doc.add_paragraph()
+            run = p.add_run('[COMPANY NAME - NOT EXTRACTED]')
             run.font.size = Pt(self.font_size_header)
             run.font.bold = True
             run.font.name = self.font_name
         
         # Address
-        if company_data.get('address'):
-            p = cell.add_paragraph()
-            run = p.add_run(company_data['address'])
+        address = company_data.get('address', '')
+        if address and address.strip():
+            p = self.doc.add_paragraph()
+            run = p.add_run(address)
             run.font.size = Pt(self.font_size_body)
             run.font.name = self.font_name
+            print(f"✓ Added address", flush=True)
+        else:
+            print("⚠ No address data", flush=True)
         
         # Contact details
         contact_parts = []
@@ -99,13 +121,17 @@ class Offer3Template:
             contact_parts.append(f"Website: {company_data['website']}")
         
         if contact_parts:
-            p = cell.add_paragraph()
+            p = self.doc.add_paragraph()
             run = p.add_run(" | ".join(contact_parts))
             run.font.size = Pt(self.font_size_body)
             run.font.name = self.font_name
+            print(f"✓ Added contact details: {len(contact_parts)} fields", flush=True)
+        else:
+            print("⚠ No contact details", flush=True)
         
         # Spacing after header
         self.doc.add_paragraph()
+        print("=" * 60, flush=True)
     
     def add_document_info_table(self, quote_number, date, valid_until, customer_name):
         """

@@ -33,7 +33,30 @@ def generate_offer3(company_data_path, items_data_path, output_path):
         with open(company_data_path, 'r', encoding='utf-8') as f:
             company_data = json.load(f)
         
-        print(f"✓ Company: {company_data.get('company_name', 'N/A')}", flush=True)
+        # Validate company data
+        company_name = company_data.get('company_name', '')
+        if not company_name or company_name.strip() == '':
+            print("⚠ WARNING: Company name is empty!", flush=True)
+            print("⚠ Company data extraction may have failed", flush=True)
+            print(f"⚠ Company data content: {json.dumps(company_data, indent=2)[:500]}", flush=True)
+        else:
+            print(f"✓ Company: {company_name}", flush=True)
+        
+        # Check other critical fields
+        if company_data.get('address'):
+            print(f"✓ Address found: {company_data['address'][:50]}...", flush=True)
+        else:
+            print("⚠ No address found", flush=True)
+        
+        if company_data.get('logo'):
+            print(f"✓ Logo found: {company_data['logo'].get('size', 0)} bytes", flush=True)
+        else:
+            print("⚠ No logo found", flush=True)
+        
+        if company_data.get('bank_details', {}).get('iban'):
+            print(f"✓ Bank details found: IBAN {company_data['bank_details']['iban']}", flush=True)
+        else:
+            print("⚠ No bank details found", flush=True)
         
         # Load items data
         print(f"Loading items data: {items_data_path}", flush=True)

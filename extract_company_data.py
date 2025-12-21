@@ -59,40 +59,24 @@ def extract_logo_from_docx(docx_path):
         print(f"✗ Logo extraction failed: {str(e)}", flush=True)
         return None
 
-def render_docx_page_to_image(docx_path):
-    """Render first page of DOCX to image for Vision API analysis"""
-    try:
-        # Convert DOCX to PDF using LibreOffice
-        pdf_path = docx_path.replace('.docx', '_temp.pdf')
-        
-        result = os.system(f'soffice --headless --convert-to pdf --outdir {os.path.dirname(docx_path)} {docx_path} > /dev/null 2>&1')
-        
-        if result != 0 or not os.path.exists(pdf_path):
-            print("⚠ LibreOffice conversion failed, using alternative method", flush=True)
-            return None
-        
-        # Convert first page of PDF to image
-        import fitz  # PyMuPDF
-        doc = fitz.open(pdf_path)
-        page = doc[0]
-        pix = page.get_pixmap(matrix=fitz.Matrix(2.0, 2.0))
-        img_bytes = pix.tobytes("png")
-        doc.close()
-        
-        # Clean up temp PDF
-        if os.path.exists(pdf_path):
-            os.remove(pdf_path)
-        
-        img_base64 = base64.b64encode(img_bytes).decode('utf-8')
-        print(f"✓ Rendered first page to image ({len(img_base64)} bytes)", flush=True)
-        
-        return f"data:image/png;base64,{img_base64}"
-        
-    except Exception as e:
-        print(f"⚠ Page rendering failed: {str(e)}", flush=True)
-        return None
-
-def extract_company_data_from_offer2(offer2_path, output_path):
+if __name__ == "__main__":
+    print("Company Data Extraction Script Started", flush=True)
+    
+    offer2_path = os.path.join(BASE_DIR, "offer2_template.docx")
+    output_path = os.path.join(OUTPUT_FOLDER, "company_data.json")
+    
+    if not os.path.exists(offer2_path):
+        print(f"✗ Template not found at {offer2_path}", flush=True)
+        sys.exit(1)
+    
+    success = extract_company_data_from_offer2(offer2_path, output_path)
+    
+    if not success:
+        print("✗ Extraction failed", flush=True)
+        sys.exit(1)
+    
+    print("✓ COMPLETED SUCCESSFULLY", flush=True)
+    sys.exit(0)
     """Extract company branding and information from Offer 2 template"""
     
     try:
@@ -110,141 +94,90 @@ def extract_company_data_from_offer2(offer2_path, output_path):
             print("✗ Template file not found", flush=True)
             return False
         
-        # Extract logo image
+        # Extract logo image FIRST
         logo_data = extract_logo_from_docx(offer2_path)
         
-        # Render first page to image for Vision API
-        page_image = render_docx_page_to_image(offer2_path)
+        # Read DOCX content directly (more reliable than Vision API)
+        print("Reading DOCX content directly...", flush=True)
+        doc = Document(offer2_path)
         
-        if not page_image:
-            print("⚠ Could not render page, using text extraction only", flush=True)
-            # Fallback: extract text from document
-            doc = Document(offer2_path)
-            text_content = []
-            for para in doc.paragraphs[:20]:
-                if para.text.strip():
-                    text_content.append(para.text.strip())
-            
-            combined_text = "\n".join(text_content)
-            
-            # Use text-only GPT analysis
-            print("Using text-based extraction...", flush=True)
-            
-            response = openai.ChatCompletion.create(
-                model="gpt-4o",
-                messages=[{
-                    "role": "user",
-                    "content": f"""Extract company information from this quotation template. This is NOT the equipment being sold - this is the COMPANY who is creating the quotation.
+        text_content = []
+        
+        # Extract from paragraphs (first 50 paragraphs should contain company info)
+        print("Extracting text from paragraphs...", flush=True)
+        for para in doc.paragraphs[:50]:
+            if para.text.strip():
+                text_content.append(para.text.strip())
+        
+        # Extract from tables (company info often in header tables)
+        print("Extracting text from tables...", flush=True)
+        for table_idx, table in enumerate(doc.tables[:10]):
+            for row in table.rows:
+                row_text = ' | '.join([cell.text.strip() for cell in row.cells if cell.text.strip()])
+                if row_text:
+                    text_content.append(row_text)
+        
+        combined_text = "\n".join(text_content)
+        
+        print(f"Extracted {len(combined_text)} characters of text", flush=True)
+        print(f"Sample text: {combined_text[:200]}...", flush=True)
+        
+        # Use GPT-4o for extraction with enhanced prompt
+        print("Calling GPT-4o for company data extraction...", flush=True)
+        
+        response = openai.ChatCompletion.create(
+            model="gpt-4o",
+            messages=[{
+                "role": "user",
+                "content": f"""Extract company information from this quotation template.
 
-Extract ONLY company/seller information:
+CRITICAL: Extract information about the COMPANY who owns this template (the seller/quotation creator), NOT about products or customers mentioned in the template.
 
-Template text:
-{combined_text[:2000]}
+Look for these patterns:
+- Company name: Usually at the top, in headers, or in footer
+- Address: Street, city, postal code, country
+- Contact: Phone numbers (with country code like +XX), email addresses, website URLs
+- Legal info: VAT number, Tax ID, Registration number
+- Bank details: IBAN, SWIFT/BIC code, bank name, account holder
+- Commercial terms: Delivery timeframes (e.g., "14 working weeks"), payment terms (e.g., "30% advance"), warranty terms
 
-Return ONLY JSON:
+Template content:
+{combined_text[:4000]}
+
+Return ONLY valid JSON (no markdown, no backticks):
 {{
-  "company_name": "Company legal name",
-  "address": "Full address",
-  "phone": "Phone number",
+  "company_name": "Full legal company name",
+  "address": "Complete address with city and country",
+  "phone": "Phone number with country code",
   "email": "Email address",
   "website": "Website URL",
-  "tax_id": "VAT/Tax ID number",
+  "tax_id": "VAT or Tax ID number",
   "registration_no": "Company registration number",
   "bank_details": {{
-    "bank_name": "...",
-    "iban": "...",
-    "swift": "...",
-    "account_holder": "..."
+    "bank_name": "Name of the bank",
+    "iban": "IBAN number",
+    "swift": "SWIFT/BIC code",
+    "account_holder": "Account holder name"
   }},
   "standard_terms": {{
-    "delivery": "Standard delivery terms",
-    "payment": "Standard payment terms",
-    "warranty": "Standard warranty terms"
-  }}
-}}"""
-                }],
-                max_tokens=1500,
-                temperature=0
-            )
-            
-            extracted_json = response.choices[0].message.content.strip()
-            
-        else:
-            # Use Vision API with rendered page
-            print("Using Vision API for extraction...", flush=True)
-            
-            content = [
-                {"type": "text", "text": """Extract COMPANY INFORMATION from this quotation template.
+    "delivery": "Delivery timeframe or terms",
+    "payment": "Payment terms and conditions",
+    "warranty": "Warranty terms"
+  }},
+  "legal_info": "Any additional legal information, registration details, or certifications"
+}}
 
-CRITICAL: You are extracting information about the COMPANY/SELLER who creates quotations, NOT the equipment being sold.
+If a field is not found in the template, use empty string "".
+"""
+            }],
+            max_tokens=2000,
+            temperature=0
+        )
+        
+        extracted_json = response.choices[0].message.content.strip()
+        
+        print("Received response from GPT-4o", flush=True)
 
-Extract:
-
-1. COMPANY IDENTITY:
-   - Company legal name
-   - Full address (street, city, postal code, country)
-   - Phone number(s)
-   - Email address(es)
-   - Website URL
-   - Tax/VAT ID number
-   - Company registration number
-
-2. BANK DETAILS:
-   - Bank name
-   - IBAN
-   - SWIFT/BIC code
-   - Account holder name
-
-3. STANDARD COMMERCIAL TERMS:
-   - Standard delivery terms (e.g., "14 business days")
-   - Standard payment terms (e.g., "50% advance, 50% before shipment")
-   - Standard warranty terms (e.g., "12 months manufacturer warranty")
-   - Any other standard conditions
-
-4. LEGAL/FOOTER INFO:
-   - Any legal disclaimers
-   - Registration details
-   - Certification mentions (ISO, CE, etc.)
-
-IMPORTANT:
-- Extract company info from header, footer, and company details sections
-- DO NOT extract equipment names, product descriptions, or pricing
-- If a field is not present, use empty string ""
-
-Return ONLY JSON:
-{
-  "company_name": "...",
-  "address": "...",
-  "phone": "...",
-  "email": "...",
-  "website": "...",
-  "tax_id": "...",
-  "registration_no": "...",
-  "bank_details": {
-    "bank_name": "...",
-    "iban": "...",
-    "swift": "...",
-    "account_holder": "..."
-  },
-  "standard_terms": {
-    "delivery": "...",
-    "payment": "...",
-    "warranty": "..."
-  },
-  "legal_info": "..."
-}
-"""},
-                {"type": "image_url", "image_url": {"url": page_image}}
-            ]
-            
-            response = openai.ChatCompletion.create(
-                model="gpt-4o",
-                messages=[{"role": "user", "content": content}],
-                max_tokens=2000,
-                temperature=0
-            )
-            
-            extracted_json = response.choices[0].message.content.strip()
         
         # Clean JSON formatting
         if extracted_json.startswith("```json"):
@@ -267,17 +200,32 @@ Return ONLY JSON:
             company_data['logo'] = None
             print("⚠ No logo found", flush=True)
         
-        # Validation
+        # Validation and display
         print("\n" + "=" * 60, flush=True)
         print("EXTRACTED COMPANY DATA", flush=True)
         print("=" * 60, flush=True)
         print(f"Company: {company_data.get('company_name', 'N/A')}", flush=True)
-        print(f"Address: {company_data.get('address', 'N/A')[:50]}...", flush=True)
+        print(f"Address: {company_data.get('address', 'N/A')[:80]}...", flush=True)
         print(f"Phone: {company_data.get('phone', 'N/A')}", flush=True)
         print(f"Email: {company_data.get('email', 'N/A')}", flush=True)
-        print(f"Bank: {company_data.get('bank_details', {}).get('bank_name', 'N/A')}", flush=True)
-        print(f"IBAN: {company_data.get('bank_details', {}).get('iban', 'N/A')}", flush=True)
+        print(f"Website: {company_data.get('website', 'N/A')}", flush=True)
+        print(f"Tax ID: {company_data.get('tax_id', 'N/A')}", flush=True)
+        
+        bank = company_data.get('bank_details', {})
+        print(f"Bank: {bank.get('bank_name', 'N/A')}", flush=True)
+        print(f"IBAN: {bank.get('iban', 'N/A')}", flush=True)
+        print(f"SWIFT: {bank.get('swift', 'N/A')}", flush=True)
+        
+        terms = company_data.get('standard_terms', {})
+        print(f"Delivery: {terms.get('delivery', 'N/A')}", flush=True)
+        print(f"Payment: {terms.get('payment', 'N/A')}", flush=True)
+        print(f"Warranty: {terms.get('warranty', 'N/A')}", flush=True)
         print("=" * 60, flush=True)
+        
+        # Validate that we got at least company name
+        if not company_data.get('company_name') or company_data.get('company_name') == '':
+            print("⚠ WARNING: Company name not extracted. Extraction may have failed.", flush=True)
+            print("⚠ Saving partial data anyway...", flush=True)
         
         # Save to JSON
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
@@ -293,6 +241,40 @@ Return ONLY JSON:
         print(f"✗ FATAL ERROR: {str(e)}", flush=True)
         import traceback
         traceback.print_exc()
+        
+        # Try to save empty structure so process doesn't completely fail
+        try:
+            empty_data = {
+                "company_name": "",
+                "address": "",
+                "phone": "",
+                "email": "",
+                "website": "",
+                "tax_id": "",
+                "registration_no": "",
+                "bank_details": {
+                    "bank_name": "",
+                    "iban": "",
+                    "swift": "",
+                    "account_holder": ""
+                },
+                "standard_terms": {
+                    "delivery": "",
+                    "payment": "",
+                    "warranty": ""
+                },
+                "legal_info": "",
+                "logo": None
+            }
+            
+            os.makedirs(os.path.dirname(output_path), exist_ok=True)
+            with open(output_path, 'w', encoding='utf-8') as f:
+                json.dump(empty_data, f, indent=2, ensure_ascii=False)
+            
+            print("⚠ Saved empty company data structure to allow process to continue", flush=True)
+        except:
+            pass
+        
         return False
 
 if __name__ == "__main__":
