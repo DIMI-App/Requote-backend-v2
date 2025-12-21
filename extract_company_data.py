@@ -59,24 +59,7 @@ def extract_logo_from_docx(docx_path):
         print(f"✗ Logo extraction failed: {str(e)}", flush=True)
         return None
 
-if __name__ == "__main__":
-    print("Company Data Extraction Script Started", flush=True)
-    
-    offer2_path = os.path.join(BASE_DIR, "offer2_template.docx")
-    output_path = os.path.join(OUTPUT_FOLDER, "company_data.json")
-    
-    if not os.path.exists(offer2_path):
-        print(f"✗ Template not found at {offer2_path}", flush=True)
-        sys.exit(1)
-    
-    success = extract_company_data_from_offer2(offer2_path, output_path)
-    
-    if not success:
-        print("✗ Extraction failed", flush=True)
-        sys.exit(1)
-    
-    print("✓ COMPLETED SUCCESSFULLY", flush=True)
-    sys.exit(0)
+def extract_company_data_from_offer2(offer2_path, output_path):
     """Extract company branding and information from Offer 2 template"""
     
     try:
@@ -177,7 +160,6 @@ If a field is not found in the template, use empty string "".
         extracted_json = response.choices[0].message.content.strip()
         
         print("Received response from GPT-4o", flush=True)
-
         
         # Clean JSON formatting
         if extracted_json.startswith("```json"):
