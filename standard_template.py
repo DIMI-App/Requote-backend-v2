@@ -3,6 +3,7 @@ Standard Offer 3 Template Structure
 Defines the professional quotation format that will be generated
 """
 
+import os
 from docx import Document
 from docx.shared import Pt, RGBColor, Inches
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -32,106 +33,75 @@ class Offer3Template:
         self.color_text_dark = "000000"
         self.color_text_light = "666666"
         
-    def add_header_section(self, company_data):
+    def copy_header_footer_from_template(self, template_path):
         """
-        Add company header with logo and contact information
-        Replicates the exact header from Offer 2
+        Copy header and footer directly from Offer 2 template to Offer 3
+        This preserves logos, formatting, company info exactly as-is
         """
         
         print("\n" + "=" * 60, flush=True)
-        print("ADDING HEADER SECTION", flush=True)
+        print("COPYING HEADER AND FOOTER FROM TEMPLATE", flush=True)
         print("=" * 60, flush=True)
         
-        # Debug: Show what we received
-        print(f"Company name: {company_data.get('company_name', 'MISSING')}", flush=True)
-        print(f"Address: {company_data.get('address', 'MISSING')[:50] if company_data.get('address') else 'MISSING'}...", flush=True)
-        print(f"Logo present: {bool(company_data.get('logo'))}", flush=True)
+        if not os.path.exists(template_path):
+            print(f"⚠ Template not found: {template_path}", flush=True)
+            return False
         
-        # Add logo if available
-        if company_data.get('logo') and company_data['logo'].get('data'):
-            try:
-                logo_format = company_data['logo']['format']
-                logo_base64 = company_data['logo']['data']
+        try:
+            from docx import Document as DocxDocument
+            template_doc = DocxDocument(template_path)
+            
+            # Copy header from each section
+            for section_idx, template_section in enumerate(template_doc.sections):
+                # Get or create corresponding section in our document
+                if section_idx >= len(self.doc.sections):
+                    self.doc.add_section()
                 
-                # Decode base64 to bytes
-                logo_bytes = base64.b64decode(logo_base64)
+                our_section = self.doc.sections[section_idx]
                 
-                # Save to temporary file
-                temp_logo_path = '/tmp/temp_logo.' + logo_format
-                with open(temp_logo_path, 'wb') as f:
-                    f.write(logo_bytes)
+                # Copy header
+                if template_section.header:
+                    print(f"Copying header from section {section_idx + 1}...", flush=True)
+                    
+                    # Clear existing header
+                    our_section.header._element.clear_content()
+                    
+                    # Copy all header content
+                    for element in template_section.header._element:
+                        our_section.header._element.append(element)
+                    
+                    print(f"✓ Header copied from section {section_idx + 1}", flush=True)
                 
-                # Add logo to document
-                logo_para = self.doc.add_paragraph()
-                logo_para.alignment = WD_ALIGN_PARAGRAPH.LEFT
-                run = logo_para.add_run()
-                
-                # Add logo with original sizing (max 2.5 inches wide)
-                run.add_picture(temp_logo_path, width=Inches(2.5))
-                
-                print(f"✓ Logo added to header ({len(logo_bytes)} bytes, {logo_format})", flush=True)
-                
-                # Clean up temp file
-                try:
-                    os.remove(temp_logo_path)
-                except:
-                    pass
-                
-            except Exception as e:
-                print(f"⚠ Could not add logo: {str(e)}", flush=True)
-        else:
-            print("⚠ No logo data available", flush=True)
-        
-        # Company information section
-        # Company name - ALWAYS show, use placeholder if missing
-        company_name = company_data.get('company_name', '[COMPANY NAME]')
-        if company_name and company_name.strip():
-            p = self.doc.add_paragraph()
-            run = p.add_run(company_name)
-            run.font.size = Pt(self.font_size_header)
-            run.font.bold = True
-            run.font.name = self.font_name
-            print(f"✓ Added company name: {company_name}", flush=True)
-        else:
-            print("✗ Company name missing - using placeholder", flush=True)
-            p = self.doc.add_paragraph()
-            run = p.add_run('[COMPANY NAME - NOT EXTRACTED]')
-            run.font.size = Pt(self.font_size_header)
-            run.font.bold = True
-            run.font.name = self.font_name
-        
-        # Address
-        address = company_data.get('address', '')
-        if address and address.strip():
-            p = self.doc.add_paragraph()
-            run = p.add_run(address)
-            run.font.size = Pt(self.font_size_body)
-            run.font.name = self.font_name
-            print(f"✓ Added address", flush=True)
-        else:
-            print("⚠ No address data", flush=True)
-        
-        # Contact details
-        contact_parts = []
-        if company_data.get('phone'):
-            contact_parts.append(f"Phone: {company_data['phone']}")
-        if company_data.get('email'):
-            contact_parts.append(f"Email: {company_data['email']}")
-        if company_data.get('website'):
-            contact_parts.append(f"Website: {company_data['website']}")
-        
-        if contact_parts:
-            p = self.doc.add_paragraph()
-            run = p.add_run(" | ".join(contact_parts))
-            run.font.size = Pt(self.font_size_body)
-            run.font.name = self.font_name
-            print(f"✓ Added contact details: {len(contact_parts)} fields", flush=True)
-        else:
-            print("⚠ No contact details", flush=True)
-        
-        # Spacing after header
-        self.doc.add_paragraph()
-        print("=" * 60, flush=True)
+                # Copy footer
+                if template_section.footer:
+                    print(f"Copying footer from section {section_idx + 1}...", flush=True)
+                    
+                    # Clear existing footer
+                    our_section.footer._element.clear_content()
+                    
+                    # Copy all footer content
+                    for element in template_section.footer._element:
+                        our_section.footer._element.append(element)
+                    
+                    print(f"✓ Footer copied from section {section_idx + 1}", flush=True)
+            
+            print("=" * 60, flush=True)
+            return True
+            
+        except Exception as e:
+            print(f"✗ Error copying header/footer: {str(e)}", flush=True)
+            import traceback
+            traceback.print_exc()
+            return False
+    
+    def add_header_section(self, company_data):
+        """
+        DEPRECATED - This method is no longer used
+        We now copy header/footer directly from template
+        Keeping this for backwards compatibility
+        """
+        print("⚠ add_header_section called but header is copied from template", flush=True)
+        pass
     
     def add_document_info_table(self, quote_number, date, valid_until, customer_name):
         """
@@ -384,71 +354,11 @@ class Offer3Template:
     
     def add_footer_section(self, company_data):
         """
-        Add footer with bank details and legal information
+        DEPRECATED - Footer is now copied directly from template
+        Keeping this for backwards compatibility
         """
-        
-        # Separator line
-        self.doc.add_paragraph("_" * 80)
-        
-        # Bank details
-        bank_details = company_data.get('bank_details', {})
-        
-        if bank_details.get('bank_name') or bank_details.get('iban'):
-            bank_para = self.doc.add_paragraph()
-            run = bank_para.add_run("BANK DETAILS\n")
-            run.font.bold = True
-            run.font.size = Pt(self.font_size_small)
-            run.font.name = self.font_name
-            
-            if bank_details.get('bank_name'):
-                run = bank_para.add_run(f"Bank: {bank_details['bank_name']}\n")
-                run.font.size = Pt(self.font_size_small)
-                run.font.name = self.font_name
-            
-            if bank_details.get('iban'):
-                run = bank_para.add_run(f"IBAN: {bank_details['iban']}\n")
-                run.font.size = Pt(self.font_size_small)
-                run.font.name = self.font_name
-            
-            if bank_details.get('swift'):
-                run = bank_para.add_run(f"SWIFT: {bank_details['swift']}\n")
-                run.font.size = Pt(self.font_size_small)
-                run.font.name = self.font_name
-            
-            if bank_details.get('account_holder'):
-                run = bank_para.add_run(f"Account Holder: {bank_details['account_holder']}\n")
-                run.font.size = Pt(self.font_size_small)
-                run.font.name = self.font_name
-        
-        # Legal info
-        legal_para = self.doc.add_paragraph()
-        run = legal_para.add_run("COMPANY REGISTRATION\n")
-        run.font.bold = True
-        run.font.size = Pt(self.font_size_small)
-        run.font.name = self.font_name
-        
-        if company_data.get('registration_no'):
-            run = legal_para.add_run(f"Registration No: {company_data['registration_no']}\n")
-            run.font.size = Pt(self.font_size_small)
-            run.font.name = self.font_name
-        
-        if company_data.get('tax_id'):
-            run = legal_para.add_run(f"VAT No: {company_data['tax_id']}\n")
-            run.font.size = Pt(self.font_size_small)
-            run.font.name = self.font_name
-        
-        # Contact for questions
-        if company_data.get('email') or company_data.get('phone'):
-            contact_text = "For questions contact: "
-            if company_data.get('email'):
-                contact_text += company_data['email']
-            if company_data.get('phone'):
-                contact_text += f", {company_data['phone']}"
-            
-            contact_para = self.doc.add_paragraph()
-            run = contact_para.add_run(contact_text)
-            run.font.size = Pt(self.font_size_small)
-            run.font.name = self.font_name
+        print("⚠ add_footer_section called but footer is copied from template", flush=True)
+        pass
     
     def save(self, output_path):
         """Save the document"""

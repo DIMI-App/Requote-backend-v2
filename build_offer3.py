@@ -88,9 +88,13 @@ def generate_offer3(company_data_path, items_data_path, output_path):
         print("\nBuilding document...", flush=True)
         template = Offer3Template()
         
-        # 1. Add header with company branding
-        print("  → Adding company header...", flush=True)
-        template.add_header_section(company_data)
+        # 1. Copy header and footer directly from Offer 2 template
+        print("  → Copying header and footer from template...", flush=True)
+        template_path = os.path.join(BASE_DIR, 'offer2_template.docx')
+        if os.path.exists(template_path):
+            template.copy_header_footer_from_template(template_path)
+        else:
+            print("  ⚠ Template not found, skipping header/footer copy", flush=True)
         
         # 2. Add document info table
         print("  → Adding document info...", flush=True)
