@@ -88,9 +88,14 @@ def generate_offer3(company_data_path, items_data_path, output_path):
         print("\nBuilding document...", flush=True)
         template = Offer3Template()
         
-        # 1. Copy header and footer directly from Offer 2 template
-        print("  → Copying header and footer from template...", flush=True)
+        # 1. Add company logo at top of document
+        print("  → Extracting company logo...", flush=True)
         template_path = os.path.join(BASE_DIR, 'offer2_template.docx')
+        if os.path.exists(template_path):
+            template.add_company_logo_from_template(template_path)
+        
+        # 2. Copy header and footer text/tables from template
+        print("  → Copying header and footer from template...", flush=True)
         if os.path.exists(template_path):
             template.copy_header_footer_from_template(template_path)
         else:

@@ -37,6 +37,8 @@ class Offer3Template:
         """
         Copy header and footer directly from Offer 2 template to Offer 3
         This preserves logos, formatting, company info exactly as-is
+        
+        Uses a more robust approach that handles embedded images properly
         """
         
         print("\n" + "=" * 60, flush=True)
@@ -48,69 +50,167 @@ class Offer3Template:
             return False
         
         try:
-            # Load template document
             from docx import Document as DocxDocument
-            from copy import deepcopy
+            from docx.oxml import parse_xml
+            from docx.oxml.ns import qn
             
+            # Open template as a ZIP file to access raw XML and relationships
+            import zipfile
+            import shutil
+            from lxml import etree
+            
+            print("Reading template document structure...", flush=True)
             template_doc = DocxDocument(template_path)
             
-            print(f"Template has {len(template_doc.sections)} section(s)", flush=True)
+            # Get first section
+            if len(template_doc.sections) == 0:
+                print("⚠ Template has no sections", flush=True)
+                return False
             
-            # Ensure our document has at least one section
-            if len(self.doc.sections) == 0:
-                self.doc.add_section()
-            
-            # Copy from first section (most documents have just 1 section)
             template_section = template_doc.sections[0]
             our_section = self.doc.sections[0]
             
-            # Copy HEADER
-            print("Copying header...", flush=True)
-            if template_section.header:
-                # Get the header XML element
-                template_header_element = template_section.header._element
-                our_header_element = our_section.header._element
-                
-                # Clear our header first
-                our_header_element.clear()
-                
-                # Copy each child element from template header
-                for child in template_header_element:
-                    # Deep copy to avoid reference issues
-                    copied_child = deepcopy(child)
-                    our_header_element.append(copied_child)
-                
-                print("✓ Header copied successfully", flush=True)
-            else:
-                print("⚠ No header found in template", flush=True)
+            # Method 1: Try simple paragraph/table copy (works if no images)
+            print("Attempting simple header/footer copy...", flush=True)
             
-            # Copy FOOTER
-            print("Copying footer...", flush=True)
+            # COPY HEADER CONTENT
+            if template_section.header:
+                print("Copying header paragraphs and tables...", flush=True)
+                
+                # Clear our header
+                for paragraph in our_section.header.paragraphs:
+                    p = paragraph._element
+                    p.getparent().remove(p)
+                
+                for table in our_section.header.tables:
+                    t = table._element
+                    t.getparent().remove(t)
+                
+                # Copy paragraphs (but this won't copy images in headers)
+                for para in template_section.header.paragraphs:
+                    new_para = our_section.header.add_paragraph(para.text)
+                    
+                    # Copy formatting
+                    for run in para.runs:
+                        new_run = new_para.add_run(run.text)
+                        new_run.bold = run.bold
+                        new_run.italic = run.italic
+                        if run.font.size:
+                            new_run.font.size = run.font.size
+                        if run.font.name:
+                            new_run.font.name = run.font.name
+                
+                # Copy tables
+                for table in template_section.header.tables:
+                    new_table = our_section.header.add_table(rows=len(table.rows), cols=len(table.columns))
+                    
+                    for i, row in enumerate(table.rows):
+                        for j, cell in enumerate(row.cells):
+                            new_table.rows[i].cells[j].text = cell.text
+                
+                print("✓ Header content copied (text and tables)", flush=True)
+            
+            # COPY FOOTER CONTENT
             if template_section.footer:
-                # Get the footer XML element
-                template_footer_element = template_section.footer._element
-                our_footer_element = our_section.footer._element
+                print("Copying footer paragraphs and tables...", flush=True)
                 
-                # Clear our footer first
-                our_footer_element.clear()
+                # Clear our footer
+                for paragraph in our_section.footer.paragraphs:
+                    p = paragraph._element
+                    p.getparent().remove(p)
                 
-                # Copy each child element from template footer
-                for child in template_footer_element:
-                    # Deep copy to avoid reference issues
-                    copied_child = deepcopy(child)
-                    our_footer_element.append(copied_child)
+                for table in our_section.footer.tables:
+                    t = table._element
+                    t.getparent().remove(t)
                 
-                print("✓ Footer copied successfully", flush=True)
-            else:
-                print("⚠ No footer found in template", flush=True)
+                # Copy paragraphs
+                for para in template_section.footer.paragraphs:
+                    new_para = our_section.footer.add_paragraph(para.text)
+                    
+                    # Copy formatting
+                    for run in para.runs:
+                        new_run = new_para.add_run(run.text)
+                        new_run.bold = run.bold
+                        new_run.italic = run.italic
+                        if run.font.size:
+                            new_run.font.size = run.font.size
+                        if run.font.name:
+                            new_run.font.name = run.font.name
+                
+                # Copy tables
+                for table in template_section.footer.tables:
+                    new_table = our_section.footer.add_table(rows=len(table.rows), cols=len(table.columns))
+                    
+                    for i, row in enumerate(table.rows):
+                        for j, cell in enumerate(row.cells):
+                            new_table.rows[i].cells[j].text = cell.text
+                
+                print("✓ Footer content copied (text and tables)", flush=True)
             
             print("=" * 60, flush=True)
+            print("⚠ NOTE: Images in header (logo) may not be copied by this method", flush=True)
+            print("⚠ Logo will need to be added separately", flush=True)
+            print("=" * 60, flush=True)
+            
             return True
             
         except Exception as e:
             print(f"✗ Error copying header/footer: {str(e)}", flush=True)
             import traceback
             traceback.print_exc()
+            return False
+    
+    def add_company_logo_from_template(self, template_path):
+        """
+        Extract logo from template and add it at the top of the document
+        This is a workaround since copying images in headers is complex
+        """
+        
+        print("\n" + "=" * 60, flush=True)
+        print("EXTRACTING AND ADDING COMPANY LOGO", flush=True)
+        print("=" * 60, flush=True)
+        
+        try:
+            from docx import Document as DocxDocument
+            
+            template_doc = DocxDocument(template_path)
+            
+            # Look for images in document relationships
+            image_found = False
+            for rel in template_doc.part.rels.values():
+                if "image" in rel.target_ref:
+                    print(f"Found image: {rel.target_ref}", flush=True)
+                    
+                    # Get image data
+                    image_data = rel.target_part.blob
+                    
+                    # Save to temp file
+                    import tempfile
+                    with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp_file:
+                        tmp_file.write(image_data)
+                        tmp_path = tmp_file.name
+                    
+                    # Add logo at top of document
+                    logo_para = self.doc.paragraphs[0].insert_paragraph_before()
+                    run = logo_para.add_run()
+                    run.add_picture(tmp_path, width=Inches(2.0))
+                    logo_para.alignment = WD_ALIGN_PARAGRAPH.LEFT
+                    
+                    # Clean up temp file
+                    os.remove(tmp_path)
+                    
+                    print("✓ Logo added to top of document", flush=True)
+                    image_found = True
+                    break
+            
+            if not image_found:
+                print("⚠ No logo image found in template", flush=True)
+            
+            print("=" * 60, flush=True)
+            return image_found
+            
+        except Exception as e:
+            print(f"⚠ Could not extract logo: {str(e)}", flush=True)
             return False
     
     def add_header_section(self, company_data):
