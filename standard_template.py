@@ -232,7 +232,20 @@ class Offer3Template:
         """
         
         info_table = self.doc.add_table(rows=4, cols=2)
-        info_table.style = 'Light Grid Accent 1'
+        
+        # Don't rely on built-in styles - they may not exist in all templates
+        # Instead, apply formatting manually
+        try:
+            info_table.style = 'Light Grid Accent 1'
+        except:
+            # Fallback: apply basic table styling manually
+            info_table.style = 'Table Grid'
+            # Add blue header color to first column
+            for row in info_table.rows:
+                # Make first cell (label) have blue background
+                cell = row.cells[0]
+                shading_elm = self._get_or_create_shading(cell)
+                shading_elm.set(qn('w:fill'), self.color_header_bg)
         
         # Set column widths
         for row in info_table.rows:
@@ -257,6 +270,15 @@ class Offer3Template:
         
         # Spacing after table
         self.doc.add_paragraph()
+    
+    def _get_or_create_shading(self, cell):
+        """Helper to add cell shading"""
+        tcPr = cell._element.get_or_add_tcPr()
+        shading = tcPr.find(qn('w:shd'))
+        if shading is None:
+            shading = OxmlElement('w:shd')
+            tcPr.append(shading)
+        return shading
     
     def add_pricing_table(self, items, currency="€"):
         """
