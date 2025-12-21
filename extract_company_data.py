@@ -80,25 +80,88 @@ def extract_company_data_from_offer2(offer2_path, output_path):
         # Extract logo image FIRST
         logo_data = extract_logo_from_docx(offer2_path)
         
-        # Read DOCX content directly (more reliable than Vision API)
-        print("Reading DOCX content directly...", flush=True)
+        # Read DOCX content comprehensively (headers, footers, body, tables)
+        print("Reading DOCX content comprehensively...", flush=True)
         doc = Document(offer2_path)
         
         text_content = []
         
-        # Extract from paragraphs (first 50 paragraphs should contain company info)
-        print("Extracting text from paragraphs...", flush=True)
-        for para in doc.paragraphs[:50]:
-            if para.text.strip():
-                text_content.append(para.text.strip())
+        # 1. HEADERS (most common location for company logo/info)
+        print("Extracting from headers...", flush=True)
+        header_texts = []
+        for section in doc.sections:
+            if section.header:
+                # Header paragraphs
+                for para in section.header.paragraphs:
+                    if para.text.strip():
+                        header_texts.append(para.text.strip())
+                
+                # Header tables (company info often in header tables)
+                for table in section.header.tables:
+                    for row in table.rows:
+                        row_text = ' | '.join([cell.text.strip() for cell in row.cells if cell.text.strip()])
+                        if row_text:
+                            header_texts.append(row_text)
         
-        # Extract from tables (company info often in header tables)
-        print("Extracting text from tables...", flush=True)
+        if header_texts:
+            print(f"✓ Found {len(header_texts)} items in headers", flush=True)
+            text_content.extend(header_texts)
+        
+        # 2. FIRST PAGE / TITLE PAGE (first 20 paragraphs)
+        print("Extracting from first page/title page...", flush=True)
+        first_page_texts = []
+        for para in doc.paragraphs[:20]:
+            if para.text.strip():
+                first_page_texts.append(para.text.strip())
+        
+        if first_page_texts:
+            print(f"✓ Found {len(first_page_texts)} paragraphs on first page", flush=True)
+            text_content.extend(first_page_texts)
+        
+        # 3. BODY PARAGRAPHS (next 30 paragraphs after first 20)
+        print("Extracting from body paragraphs...", flush=True)
+        body_texts = []
+        for para in doc.paragraphs[20:50]:
+            if para.text.strip():
+                body_texts.append(para.text.strip())
+        
+        if body_texts:
+            print(f"✓ Found {len(body_texts)} paragraphs in body", flush=True)
+            text_content.extend(body_texts)
+        
+        # 4. TABLES (first 10 tables - company info sometimes in tables)
+        print("Extracting from tables...", flush=True)
+        table_texts = []
         for table_idx, table in enumerate(doc.tables[:10]):
             for row in table.rows:
                 row_text = ' | '.join([cell.text.strip() for cell in row.cells if cell.text.strip()])
                 if row_text:
-                    text_content.append(row_text)
+                    table_texts.append(row_text)
+        
+        if table_texts:
+            print(f"✓ Found {len(table_texts)} table rows", flush=True)
+            text_content.extend(table_texts)
+        
+        # 5. FOOTERS (bank details, legal info often here)
+        print("Extracting from footers...", flush=True)
+        footer_texts = []
+        for section in doc.sections:
+            if section.footer:
+                # Footer paragraphs
+                for para in section.footer.paragraphs:
+                    if para.text.strip():
+                        footer_texts.append(para.text.strip())
+                
+                # Footer tables (bank details often in footer tables)
+                for table in section.footer.tables:
+                    for row in table.rows:
+                        row_text = ' | '.join([cell.text.strip() for cell in row.cells if cell.text.strip()])
+                        if row_text:
+                            footer_texts.append(row_text)
+        
+        if footer_texts:
+            print(f"✓ Found {len(footer_texts)} items in footers", flush=True)
+            text_content.extend(footer_texts)
         
         combined_text = "\n".join(text_content)
         
