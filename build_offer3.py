@@ -162,35 +162,50 @@ def generate_offer3(company_data_path, items_data_path, output_path):
                 offer1_source = None
         
         if offer1_source and offer1_source.endswith('.docx'):
-            # Direct copy from DOCX
+            # Direct copy from DOCX - NO FILTERING, NO ITEM MATCHING
             from copy_technical_content import copy_technical_content_from_offer1
             
-            # Add heading
+            # Add "Technical Specifications" heading
             heading = doc.add_paragraph()
             run = heading.add_run("Technical Specifications")
             run.font.size = Pt(14)
             run.font.bold = True
+            doc.add_paragraph()  # Blank line for spacing
             
-            # Copy all content after "TECHNICAL" keyword
-            success = copy_technical_content_from_offer1(offer1_source, doc, start_after_keyword="TECHNICAL")
+            # Copy EVERYTHING after "TECHNICAL" keyword
+            # This copies ALL content - paragraphs, tables, images, formatting
+            # No filtering, no item matching, just dump all technical content
+            print("  → Copying ALL content after 'TECHNICAL' keyword...", flush=True)
+            success = copy_technical_content_from_offer1(
+                offer1_source, 
+                doc, 
+                start_after_keyword="TECHNICAL"
+            )
+            
+            if not success:
+                # If keyword not found, try broader keywords
+                print("  → 'TECHNICAL' not found, trying 'SPECIFICATION'...", flush=True)
+                success = copy_technical_content_from_offer1(
+                    offer1_source,
+                    doc,
+                    start_after_keyword="SPECIFICATION"
+                )
+            
+            if not success:
+                # Last resort: try to find first table/content after pricing
+                print("  → Keywords not found, copying from document start...", flush=True)
+                success = copy_technical_content_from_offer1(
+                    offer1_source,
+                    doc,
+                    start_after_keyword=""  # Empty = start from beginning
+                )
             
             if success:
-                print(f"  ✓ Technical content copied directly from source", flush=True)
+                print(f"  ✓ ALL technical content copied (no filtering applied)", flush=True)
             else:
-                print(f"  ⚠ Direct copy failed, using extracted descriptions", flush=True)
-                # Fallback to extracted descriptions
-                items_with_desc = [item for item in items if item.get('description') or item.get('specifications')]
-                if items_with_desc:
-                    template_helper.add_technical_descriptions(items_with_desc)
+                print(f"  ⚠ Copy completely failed", flush=True)
         else:
-            # Fallback: use extracted descriptions from JSON
-            print("  → Using extracted technical descriptions...", flush=True)
-            items_with_desc = [item for item in items if item.get('description') or item.get('specifications')]
-            if items_with_desc:
-                print(f"  ✓ Adding descriptions for {len(items_with_desc)} items", flush=True)
-                template_helper.add_technical_descriptions(items_with_desc)
-            else:
-                print("  ⚠ No technical descriptions available", flush=True)
+            print(f"  ⚠ No DOCX source - cannot copy technical content", flush=True)
         
         # Add commercial terms
         print("  → Adding commercial terms...", flush=True)
