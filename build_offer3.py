@@ -121,12 +121,12 @@ def generate_offer3(company_data_path, items_data_path, output_path):
         # Add technical descriptions - COPY DIRECTLY FROM OFFER 1
         print("  → Copying technical content from Offer 1...", flush=True)
         
-        # Find Offer 1 source document
+        # Find Offer 1 source document - PREFER DOCX over PDF
         offer1_path_options = [
-            os.path.join(BASE_DIR, 'uploads', 'offer1.pdf'),
-            os.path.join(BASE_DIR, 'uploads', 'offer1.docx'),
-            os.path.join(BASE_DIR, 'offer1.pdf'),
+            os.path.join(BASE_DIR, 'uploads', 'offer1.docx'),  # Check DOCX first
             os.path.join(BASE_DIR, 'offer1.docx'),
+            os.path.join(BASE_DIR, 'uploads', 'offer1.pdf'),   # Then PDF
+            os.path.join(BASE_DIR, 'offer1.pdf'),
         ]
         
         offer1_source = None
