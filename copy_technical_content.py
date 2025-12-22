@@ -44,29 +44,41 @@ def copy_technical_content_from_offer1(offer1_path, target_doc, start_after_keyw
         # Get all body elements (paragraphs AND tables in correct order)
         body_elements = source_doc.element.body
         
-        # Track which element index we're at
-        para_index = 0
-        table_index = 0
+        # Track element index properly
+        current_element_index = 0
+        start_element_index = None
         elements_copied = 0
         
-        for element in body_elements:
-            # Check if it's a paragraph
+        # FIRST PASS: Find which ELEMENT index corresponds to the paragraph index
+        para_counter = 0
+        for idx, element in enumerate(body_elements):
             if element.tag.endswith('p'):
-                if para_index >= start_index:
-                    # Copy paragraph
+                if para_counter == start_index:
+                    start_element_index = idx
+                    print(f"✓ Start copying from element index {idx} (paragraph {start_index})", flush=True)
+                    break
+                para_counter += 1
+        
+        if start_element_index is None:
+            print(f"⚠ Could not find element index for paragraph {start_index}", flush=True)
+            start_element_index = 0
+        
+        # SECOND PASS: Copy all elements from start_element_index onwards
+        print(f"Copying elements from index {start_element_index} to end...", flush=True)
+        
+        for idx, element in enumerate(body_elements):
+            if idx >= start_element_index:
+                # Copy paragraph
+                if element.tag.endswith('p'):
                     new_para = target_doc.add_paragraph()
                     new_para._element = deepcopy(element)
                     elements_copied += 1
-                para_index += 1
-            
-            # Check if it's a table
-            elif element.tag.endswith('tbl'):
-                if start_index is not None and para_index >= start_index:
-                    # Copy table
+                
+                # Copy table
+                elif element.tag.endswith('tbl'):
                     new_table_element = deepcopy(element)
                     target_doc.element.body.append(new_table_element)
                     elements_copied += 1
-                table_index += 1
         
         print(f"✓ Copied {elements_copied} elements (paragraphs + tables)")
         return True
