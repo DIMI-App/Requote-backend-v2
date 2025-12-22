@@ -223,7 +223,6 @@ def generate_offer3(company_data_path, items_data_path, output_path):
         print("OFFER 3 GENERATION SUMMARY", flush=True)
         print("=" * 60, flush=True)
         print(f"Total Items: {len(items)}", flush=True)
-        print(f"Items with Descriptions: {len(items_with_desc)}", flush=True)
         print(f"Quote Number: {quote_number}", flush=True)
         print(f"Valid Until: {valid_until}", flush=True)
         print("=" * 60, flush=True)
