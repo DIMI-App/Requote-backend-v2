@@ -118,51 +118,25 @@ def generate_offer3(company_data_path, items_data_path, output_path):
         print("  → Adding pricing table...", flush=True)
         template_helper.add_pricing_table(items)
         
-        # Add technical descriptions - COPY DIRECTLY FROM OFFER 1
+        # Add technical descriptions - COPY DIRECTLY FROM OFFER 1 DOCX
         print("  → Copying technical content from Offer 1...", flush=True)
         
-        # Find Offer 1 source document - PREFER DOCX over PDF
-        offer1_path_options = [
-            os.path.join(BASE_DIR, 'uploads', 'offer1.docx'),  # Check DOCX first
+        # Find Offer 1 DOCX source
+        offer1_docx_options = [
+            os.path.join(BASE_DIR, 'uploads', 'offer1_original.docx'),
+            os.path.join(BASE_DIR, 'uploads', 'offer1.docx'),
             os.path.join(BASE_DIR, 'offer1.docx'),
-            os.path.join(BASE_DIR, 'uploads', 'offer1.pdf'),   # Then PDF
-            os.path.join(BASE_DIR, 'offer1.pdf'),
         ]
         
         offer1_source = None
-        for path in offer1_path_options:
+        for path in offer1_docx_options:
             if os.path.exists(path):
                 offer1_source = path
-                print(f"  ✓ Found Offer 1: {path}", flush=True)
+                print(f"  ✓ Found Offer 1 DOCX: {path}", flush=True)
                 break
         
-        # Convert PDF to DOCX if needed
-        if offer1_source and offer1_source.endswith('.pdf'):
-            print("  → Converting PDF to DOCX for content extraction...", flush=True)
-            
-            # Use LibreOffice to convert PDF to DOCX
-            docx_path = offer1_source.replace('.pdf', '_converted.docx')
-            
-            try:
-                import subprocess
-                result = subprocess.run(
-                    ['soffice', '--headless', '--convert-to', 'docx', '--outdir', os.path.dirname(offer1_source), offer1_source],
-                    capture_output=True,
-                    timeout=60
-                )
-                
-                if result.returncode == 0 and os.path.exists(docx_path):
-                    offer1_source = docx_path
-                    print(f"  ✓ Converted to DOCX: {docx_path}", flush=True)
-                else:
-                    print(f"  ⚠ PDF conversion failed, using extracted descriptions", flush=True)
-                    offer1_source = None
-            except Exception as e:
-                print(f"  ⚠ PDF conversion error: {str(e)}", flush=True)
-                offer1_source = None
-        
-        if offer1_source and offer1_source.endswith('.docx'):
-            # Direct copy from DOCX - NO FILTERING, NO ITEM MATCHING
+        if offer1_source:
+            # Import copy function
             from copy_technical_content import copy_technical_content_from_offer1
             
             # Add "Technical Specifications" heading
@@ -170,11 +144,9 @@ def generate_offer3(company_data_path, items_data_path, output_path):
             run = heading.add_run("Technical Specifications")
             run.font.size = Pt(14)
             run.font.bold = True
-            doc.add_paragraph()  # Blank line for spacing
+            doc.add_paragraph()  # Blank line
             
-            # Copy EVERYTHING after "TECHNICAL" keyword
-            # This copies ALL content - paragraphs, tables, images, formatting
-            # No filtering, no item matching, just dump all technical content
+            # Copy ALL content after "TECHNICAL" keyword
             print("  → Copying ALL content after 'TECHNICAL' keyword...", flush=True)
             success = copy_technical_content_from_offer1(
                 offer1_source, 
@@ -183,7 +155,7 @@ def generate_offer3(company_data_path, items_data_path, output_path):
             )
             
             if not success:
-                # If keyword not found, try broader keywords
+                # Try alternative keywords
                 print("  → 'TECHNICAL' not found, trying 'SPECIFICATION'...", flush=True)
                 success = copy_technical_content_from_offer1(
                     offer1_source,
@@ -192,7 +164,16 @@ def generate_offer3(company_data_path, items_data_path, output_path):
                 )
             
             if not success:
-                # Last resort: try to find first table/content after pricing
+                # Try "FEATURES"
+                print("  → 'SPECIFICATION' not found, trying 'FEATURES'...", flush=True)
+                success = copy_technical_content_from_offer1(
+                    offer1_source,
+                    doc,
+                    start_after_keyword="FEATURES"
+                )
+            
+            if not success:
+                # Last resort: copy from start
                 print("  → Keywords not found, copying from document start...", flush=True)
                 success = copy_technical_content_from_offer1(
                     offer1_source,
@@ -201,17 +182,18 @@ def generate_offer3(company_data_path, items_data_path, output_path):
                 )
             
             if success:
-                print(f"  ✓ ALL technical content copied (no filtering applied)", flush=True)
+                print(f"  ✓ Technical content copied", flush=True)
             else:
-                print(f"  ⚠ Copy completely failed", flush=True)
+                print(f"  ⚠ Copy failed, continuing without technical content", flush=True)
         else:
-            print(f"  ⚠ No DOCX source - cannot copy technical content", flush=True)
+            print(f"  ⚠ No DOCX source found - skipping technical content", flush=True)
+            print(f"  ℹ Upload Offer 1 as DOCX format for technical content", flush=True)
         
         # Add commercial terms
         print("  → Adding commercial terms...", flush=True)
         template_helper.add_commercial_terms(company_data)
         
-        # STEP 5: Save (overwrites the copied template with new content)
+        # STEP 5: Save
         print(f"\nSaving document: {output_path}", flush=True)
         doc.save(output_path)
         
@@ -225,6 +207,7 @@ def generate_offer3(company_data_path, items_data_path, output_path):
         print(f"Total Items: {len(items)}", flush=True)
         print(f"Quote Number: {quote_number}", flush=True)
         print(f"Valid Until: {valid_until}", flush=True)
+        print(f"Technical Content: {'Copied from DOCX' if offer1_source else 'Not available'}", flush=True)
         print("=" * 60, flush=True)
         
         print("\n✓ OFFER 3 GENERATION COMPLETED SUCCESSFULLY", flush=True)
