@@ -10,6 +10,7 @@ import json
 import shutil
 from datetime import datetime, timedelta
 from docx import Document
+from docx.shared import Pt
 from standard_template import Offer3Template
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -117,11 +118,79 @@ def generate_offer3(company_data_path, items_data_path, output_path):
         print("  → Adding pricing table...", flush=True)
         template_helper.add_pricing_table(items)
         
-        # Add technical descriptions
-        items_with_desc = [item for item in items if item.get('description') or item.get('specifications')]
-        if items_with_desc:
-            print(f"  → Adding technical descriptions ({len(items_with_desc)} items)...", flush=True)
-            template_helper.add_technical_descriptions(items_with_desc)
+        # Add technical descriptions - COPY DIRECTLY FROM OFFER 1
+        print("  → Copying technical content from Offer 1...", flush=True)
+        
+        # Find Offer 1 source document
+        offer1_path_options = [
+            os.path.join(BASE_DIR, 'uploads', 'offer1.pdf'),
+            os.path.join(BASE_DIR, 'uploads', 'offer1.docx'),
+            os.path.join(BASE_DIR, 'offer1.pdf'),
+            os.path.join(BASE_DIR, 'offer1.docx'),
+        ]
+        
+        offer1_source = None
+        for path in offer1_path_options:
+            if os.path.exists(path):
+                offer1_source = path
+                print(f"  ✓ Found Offer 1: {path}", flush=True)
+                break
+        
+        # Convert PDF to DOCX if needed
+        if offer1_source and offer1_source.endswith('.pdf'):
+            print("  → Converting PDF to DOCX for content extraction...", flush=True)
+            
+            # Use LibreOffice to convert PDF to DOCX
+            docx_path = offer1_source.replace('.pdf', '_converted.docx')
+            
+            try:
+                import subprocess
+                result = subprocess.run(
+                    ['soffice', '--headless', '--convert-to', 'docx', '--outdir', os.path.dirname(offer1_source), offer1_source],
+                    capture_output=True,
+                    timeout=60
+                )
+                
+                if result.returncode == 0 and os.path.exists(docx_path):
+                    offer1_source = docx_path
+                    print(f"  ✓ Converted to DOCX: {docx_path}", flush=True)
+                else:
+                    print(f"  ⚠ PDF conversion failed, using extracted descriptions", flush=True)
+                    offer1_source = None
+            except Exception as e:
+                print(f"  ⚠ PDF conversion error: {str(e)}", flush=True)
+                offer1_source = None
+        
+        if offer1_source and offer1_source.endswith('.docx'):
+            # Direct copy from DOCX
+            from copy_technical_content import copy_technical_content_from_offer1
+            
+            # Add heading
+            heading = doc.add_paragraph()
+            run = heading.add_run("Technical Specifications")
+            run.font.size = Pt(14)
+            run.font.bold = True
+            
+            # Copy all content after "TECHNICAL" keyword
+            success = copy_technical_content_from_offer1(offer1_source, doc, start_after_keyword="TECHNICAL")
+            
+            if success:
+                print(f"  ✓ Technical content copied directly from source", flush=True)
+            else:
+                print(f"  ⚠ Direct copy failed, using extracted descriptions", flush=True)
+                # Fallback to extracted descriptions
+                items_with_desc = [item for item in items if item.get('description') or item.get('specifications')]
+                if items_with_desc:
+                    template_helper.add_technical_descriptions(items_with_desc)
+        else:
+            # Fallback: use extracted descriptions from JSON
+            print("  → Using extracted technical descriptions...", flush=True)
+            items_with_desc = [item for item in items if item.get('description') or item.get('specifications')]
+            if items_with_desc:
+                print(f"  ✓ Adding descriptions for {len(items_with_desc)} items", flush=True)
+                template_helper.add_technical_descriptions(items_with_desc)
+            else:
+                print("  ⚠ No technical descriptions available", flush=True)
         
         # Add commercial terms
         print("  → Adding commercial terms...", flush=True)
