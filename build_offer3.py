@@ -1,7 +1,10 @@
 """
-Build Offer 3 - ACTUALLY SIMPLE APPROACH
-Just copy the template file and replace its body content
-This preserves EVERYTHING: header, footer, logo, formatting
+Build Offer 3 - USE AI-EXTRACTED DESCRIPTIONS
+1. Copy template (preserves header/footer/logo)
+2. Clear body
+3. Add pricing table
+4. Add technical descriptions from JSON (AI-extracted)
+5. Add commercial terms
 """
 
 import os
@@ -10,7 +13,8 @@ import json
 import shutil
 from datetime import datetime, timedelta
 from docx import Document
-from docx.shared import Pt
+from docx.shared import Pt, RGBColor
+from docx.enum.text import WD_ALIGN_PARAGRAPH
 from standard_template import Offer3Template
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -18,19 +22,12 @@ OUTPUT_FOLDER = os.path.join(BASE_DIR, 'outputs')
 
 def generate_offer3(company_data_path, items_data_path, output_path):
     """
-    SIMPLE APPROACH:
-    1. Copy template file to output
-    2. Open it
-    3. Clear body
-    4. Add new content
-    5. Save
-    
-    Header/footer/logo preserved automatically because we're editing the template itself.
+    Build Offer 3 using AI-extracted data
     """
     
     try:
         print("=" * 60, flush=True)
-        print("BUILDING OFFER 3 - COPY AND EDIT TEMPLATE", flush=True)
+        print("BUILDING OFFER 3 - AI EXTRACTION APPROACH", flush=True)
         print("=" * 60, flush=True)
         
         # Load items data
@@ -44,6 +41,10 @@ def generate_offer3(company_data_path, items_data_path, output_path):
         
         items = items_data.get('items', [])
         print(f"✓ Loaded {len(items)} items", flush=True)
+        
+        # Check description quality
+        items_with_desc = sum(1 for item in items if len(item.get('description', '')) > 50)
+        print(f"  Items with descriptions (>50 chars): {items_with_desc}/{len(items)}", flush=True)
         
         # Load company data (optional)
         company_data = {}
@@ -65,16 +66,16 @@ def generate_offer3(company_data_path, items_data_path, output_path):
                 break
         
         if not template_path:
-            print("✗ Template not found! Cannot create offer without template.", flush=True)
+            print("✗ Template not found!", flush=True)
             return False
         
-        # STEP 1: Copy template to output location
+        # Copy template to output
         print(f"Copying template to: {output_path}", flush=True)
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
         shutil.copy2(template_path, output_path)
         print("✓ Template copied", flush=True)
         
-        # STEP 2: Open the copied template
+        # Open the copied template
         print("Opening copied template...", flush=True)
         doc = Document(output_path)
         
@@ -82,22 +83,20 @@ def generate_offer3(company_data_path, items_data_path, output_path):
         print(f"Template has {len(doc.paragraphs)} paragraph(s)", flush=True)
         print(f"Template has {len(doc.tables)} table(s)", flush=True)
         
-        # STEP 3: Delete all body content (keep header/footer)
+        # Clear body content (keep header/footer)
         print("Clearing body content...", flush=True)
         
-        # Remove all paragraphs
         for para in doc.paragraphs[:]:
             p_element = para._element
             p_element.getparent().remove(p_element)
         
-        # Remove all tables
         for table in doc.tables[:]:
             t_element = table._element
             t_element.getparent().remove(t_element)
         
         print("✓ Body content cleared", flush=True)
         
-        # STEP 4: Add new content
+        # Add new content
         print("\nAdding new content...", flush=True)
         
         # Generate metadata
@@ -106,94 +105,27 @@ def generate_offer3(company_data_path, items_data_path, output_path):
         quote_date = today.strftime("%B %d, %Y")
         valid_until = (today + timedelta(days=30)).strftime("%B %d, %Y")
         
-        # Create helper (but use our document, not a new one)
+        # Create helper
         template_helper = Offer3Template()
         template_helper.doc = doc
         
-        # Add document info
+        # 1. Document info
         print("  → Adding document info...", flush=True)
         template_helper.add_document_info_table(quote_number, quote_date, valid_until, "[Customer Name]")
         
-        # Add pricing table
+        # 2. Pricing table
         print("  → Adding pricing table...", flush=True)
         template_helper.add_pricing_table(items)
         
-        # Add technical descriptions - COPY DIRECTLY FROM OFFER 1 DOCX
-        print("  → Copying technical content from Offer 1...", flush=True)
+        # 3. Technical descriptions from AI-extracted JSON
+        print("  → Adding technical descriptions from extracted data...", flush=True)
+        add_technical_descriptions_from_json(doc, items)
         
-        # Find Offer 1 DOCX source
-        offer1_docx_options = [
-            os.path.join(BASE_DIR, 'uploads', 'offer1_original.docx'),
-            os.path.join(BASE_DIR, 'uploads', 'offer1.docx'),
-            os.path.join(BASE_DIR, 'offer1.docx'),
-        ]
-        
-        offer1_source = None
-        for path in offer1_docx_options:
-            if os.path.exists(path):
-                offer1_source = path
-                print(f"  ✓ Found Offer 1 DOCX: {path}", flush=True)
-                break
-        
-        if offer1_source:
-            # Import copy function
-            from copy_technical_content import copy_technical_content_from_offer1
-            
-            # Add "Technical Specifications" heading
-            heading = doc.add_paragraph()
-            run = heading.add_run("Technical Specifications")
-            run.font.size = Pt(14)
-            run.font.bold = True
-            doc.add_paragraph()  # Blank line
-            
-            # Copy ALL content after "TECHNICAL" keyword
-            print("  → Copying ALL content after 'TECHNICAL' keyword...", flush=True)
-            success = copy_technical_content_from_offer1(
-                offer1_source, 
-                doc, 
-                start_after_keyword="TECHNICAL"
-            )
-            
-            if not success:
-                # Try alternative keywords
-                print("  → 'TECHNICAL' not found, trying 'SPECIFICATION'...", flush=True)
-                success = copy_technical_content_from_offer1(
-                    offer1_source,
-                    doc,
-                    start_after_keyword="SPECIFICATION"
-                )
-            
-            if not success:
-                # Try "FEATURES"
-                print("  → 'SPECIFICATION' not found, trying 'FEATURES'...", flush=True)
-                success = copy_technical_content_from_offer1(
-                    offer1_source,
-                    doc,
-                    start_after_keyword="FEATURES"
-                )
-            
-            if not success:
-                # Last resort: copy from start
-                print("  → Keywords not found, copying from document start...", flush=True)
-                success = copy_technical_content_from_offer1(
-                    offer1_source,
-                    doc,
-                    start_after_keyword=""  # Empty = start from beginning
-                )
-            
-            if success:
-                print(f"  ✓ Technical content copied", flush=True)
-            else:
-                print(f"  ⚠ Copy failed, continuing without technical content", flush=True)
-        else:
-            print(f"  ⚠ No DOCX source found - skipping technical content", flush=True)
-            print(f"  ℹ Upload Offer 1 as DOCX format for technical content", flush=True)
-        
-        # Add commercial terms
+        # 4. Commercial terms
         print("  → Adding commercial terms...", flush=True)
         template_helper.add_commercial_terms(company_data)
         
-        # STEP 5: Save
+        # Save
         print(f"\nSaving document: {output_path}", flush=True)
         doc.save(output_path)
         
@@ -205,9 +137,10 @@ def generate_offer3(company_data_path, items_data_path, output_path):
         print("OFFER 3 GENERATION SUMMARY", flush=True)
         print("=" * 60, flush=True)
         print(f"Total Items: {len(items)}", flush=True)
+        print(f"Items with descriptions: {items_with_desc}", flush=True)
         print(f"Quote Number: {quote_number}", flush=True)
         print(f"Valid Until: {valid_until}", flush=True)
-        print(f"Technical Content: {'Copied from DOCX' if offer1_source else 'Not available'}", flush=True)
+        print(f"Source: AI semantic extraction", flush=True)
         print("=" * 60, flush=True)
         
         print("\n✓ OFFER 3 GENERATION COMPLETED SUCCESSFULLY", flush=True)
@@ -219,6 +152,83 @@ def generate_offer3(company_data_path, items_data_path, output_path):
         import traceback
         traceback.print_exc()
         return False
+
+
+def add_technical_descriptions_from_json(doc, items):
+    """
+    Add technical descriptions section using AI-extracted data
+    
+    For each item with description/specifications:
+    - Item heading (item number + name)
+    - Description paragraph
+    - Specifications (if available)
+    - Details (if available)
+    """
+    
+    # Section heading
+    heading = doc.add_paragraph()
+    run = heading.add_run("Technical Specifications")
+    run.font.size = Pt(14)
+    run.font.bold = True
+    
+    doc.add_paragraph()  # Spacing
+    
+    item_counter = 1
+    items_added = 0
+    
+    for item in items:
+        description = item.get('description', '').strip()
+        specifications = item.get('specifications', '').strip()
+        details = item.get('details', '').strip()
+        
+        # Skip items with no technical content
+        if not description and not specifications and not details:
+            item_counter += 1
+            continue
+        
+        # Item heading (e.g., "1. DISCONTINUOUS DISTILLATION UNIT C27")
+        item_heading = doc.add_paragraph()
+        item_name = item.get('item_name', 'Item')
+        run = item_heading.add_run(f"{item_counter}. {item_name}")
+        run.font.size = Pt(12)
+        run.font.bold = True
+        
+        # Description (main technical content)
+        if description:
+            desc_para = doc.add_paragraph()
+            run = desc_para.add_run(description)
+            run.font.size = Pt(11)
+            doc.add_paragraph()  # Spacing
+        
+        # Specifications (structured technical data)
+        if specifications:
+            spec_heading = doc.add_paragraph()
+            run = spec_heading.add_run("Key Specifications:")
+            run.font.bold = True
+            run.font.size = Pt(11)
+            
+            spec_para = doc.add_paragraph()
+            run = spec_para.add_run(specifications)
+            run.font.size = Pt(10)
+            doc.add_paragraph()  # Spacing
+        
+        # Additional details (notes, custom tariff, etc.)
+        if details:
+            details_para = doc.add_paragraph()
+            run = details_para.add_run(details)
+            run.font.size = Pt(9)
+            run.font.color.rgb = RGBColor(102, 102, 102)  # Gray
+            doc.add_paragraph()  # Spacing
+        
+        item_counter += 1
+        items_added += 1
+    
+    print(f"  ✓ Added technical descriptions for {items_added} items", flush=True)
+    
+    if items_added == 0:
+        print(f"  ⚠ WARNING: No items had technical descriptions!", flush=True)
+        print(f"  ⚠ Check extraction quality in items_offer1.json", flush=True)
+
 
 if __name__ == "__main__":
     print("Offer 3 Generation Script Started", flush=True)
