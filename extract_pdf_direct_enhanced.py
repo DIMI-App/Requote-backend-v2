@@ -1,9 +1,19 @@
+"""
+TWO-PHASE EXTRACTION - Ensures complete technical content capture
+
+PHASE 1: Extract pricing table structure (item names, prices, quantities)
+PHASE 2: Extract ALL technical content as complete sections (no truncation)
+
+This approach prevents AI from getting "lazy" and truncating descriptions.
+"""
+
 import os
 import sys
 import json
 import openai
 import fitz
 import base64
+import time
 
 openai.api_key = os.environ.get('OPENAI_API_KEY')
 
@@ -12,249 +22,316 @@ UPLOAD_FOLDER = os.path.join(BASE_DIR, 'uploads')
 OUTPUT_FOLDER = os.path.join(BASE_DIR, 'outputs')
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
+# Configuration
+MAX_PAGES = 15
+IMAGE_SCALE = 1.5
+MAX_TOKENS_PRICING = 4000
+MAX_TOKENS_TECHNICAL = 8000
+
 def extract_items_from_pdf(pdf_path, output_path):
     try:
-        print("=== STARTING SEMANTIC EXTRACTION (Prices + Surrounding Technical Content) ===", flush=True)
+        print("=" * 80, flush=True)
+        print("TWO-PHASE EXTRACTION - Pricing + Complete Technical Content", flush=True)
+        print("=" * 80, flush=True)
+        
+        start_time = time.time()
         
         if not openai.api_key:
             print("ERROR: OPENAI_API_KEY not set", flush=True)
             return False
         
-        print("OpenAI key found", flush=True)
-        print("Reading PDF: " + pdf_path, flush=True)
+        print("Reading PDF:", pdf_path, flush=True)
         
         if not os.path.exists(pdf_path):
             print("ERROR: PDF file not found", flush=True)
             return False
         
-        print("Opening PDF with PyMuPDF...", flush=True)
+        # Convert PDF pages to images
+        print("Converting PDF to images...", flush=True)
         doc = fitz.open(pdf_path)
         total_pages = len(doc)
         print(f"PDF has {total_pages} pages", flush=True)
         
-        # Process ALL pages
-        max_pages = min(15, total_pages)
+        max_pages = min(MAX_PAGES, total_pages)
         print(f"Processing first {max_pages} pages", flush=True)
         
         image_data_list = []
         for page_num in range(max_pages):
-            print(f"Converting page {page_num + 1}...", flush=True)
             page = doc[page_num]
-            pix = page.get_pixmap(matrix=fitz.Matrix(1.5, 1.5))
+            pix = page.get_pixmap(matrix=fitz.Matrix(IMAGE_SCALE, IMAGE_SCALE))
             img_bytes = pix.tobytes("png")
             img_base64 = base64.b64encode(img_bytes).decode('utf-8')
             image_data_list.append(f"data:image/png;base64,{img_base64}")
-            print(f"Page {page_num + 1}: converted ({len(img_base64)} bytes)", flush=True)
+            print(f"  Page {page_num + 1}: converted", flush=True)
         
         doc.close()
-        print("All pages converted", flush=True)
+        print(f"✓ All pages converted ({time.time() - start_time:.1f}s)", flush=True)
         
-        print("Building SEMANTIC extraction request...", flush=True)
+        # =================================================================
+        # PHASE 1: EXTRACT PRICING TABLE STRUCTURE
+        # =================================================================
+        print("\n" + "=" * 80, flush=True)
+        print("PHASE 1: EXTRACTING PRICING TABLE STRUCTURE", flush=True)
+        print("=" * 80, flush=True)
         
-        content = [
-            {"type": "text", "text": """You are extracting data from a supplier quotation to transfer it into our company template.
+        pricing_content = [
+            {"type": "text", "text": """Extract the PRICING TABLE STRUCTURE ONLY.
 
-CRITICAL: Extract COMPLETE information for each priced item by reading the ENTIRE document semantically - not just table cells.
+Your job: Find all priced items and extract basic table data.
 
-═══════════════════════════════════════════════════════════════
-EXTRACTION STRATEGY
-═══════════════════════════════════════════════════════════════
+WHAT TO EXTRACT:
+For each item in pricing tables, extract:
+- category: Section name (e.g., "Main Equipment", "Options", "Packing")
+- item_name: Short name from table (e.g., "MODULAR CM 576-9-SM-4B 2-0-0-0-0")
+- quantity: Number (default "1" if not shown)
+- unit_price: Keep EXACT format:
+  * Numeric: "€150.320,00" (preserve dots/commas)
+  * Included: "Included"
+  * On request: "On request"
+- total_price: Same format as unit_price
 
-1. FIND ALL PRICED ITEMS
-   Scan for sections with pricing:
-   - Main equipment tables
-   - Accessories sections  
-   - Format changes / spare parts
-   - Packing / shipping
-   - Any line with: price, "Included", "On request", "To be quoted"
+WHAT NOT TO EXTRACT:
+- Do NOT extract technical descriptions
+- Do NOT extract specifications
+- Do NOT extract detailed features
+- ONLY extract what's IN THE TABLE CELLS
 
-2. FOR EACH ITEM, EXTRACT COMPLETE CONTEXT
-   
-   A) BASIC INFO (from table):
-      - item_name: Short title from table
-      - quantity: Number (default "1")
-      - unit_price: Exact format ("€96.900,00" OR "Included" OR "On request")
-      - total_price: Same format
-      - category: Section name ("Main Equipment", "ACCESSORIES", etc.)
-   
-   B) FULL DESCRIPTION - READ THE ENTIRE DOCUMENT:
-      Look for technical content NEAR this item:
-      - Paragraphs ABOVE/BELOW the pricing table
-      - Technical sections on FOLLOWING pages
-      - Detailed product descriptions
-      - How the equipment works
-      - Components included
-      - Materials and construction
-      
-      COMBINE INTO ONE DESCRIPTION (100-300 words):
-      - Product overview
-      - How it works / what it does
-      - Key features and components
-      - Materials and specifications
-      - Standards compliance
-      - Included accessories
-      
-      EXAMPLE for a distillation unit:
-      "DISCONTINUOUS DISTILLATION UNIT C27 for wine, fermented grapes and other fruits - working with indirect steam at max. 0,5 bar, operating at atmospheric pressure. Alembic capacity: 1000 Litres. The unit features copper and stainless steel construction with a tall vertical column and spherical alembic. Complete with heating jacket, temperature control system, cooling condenser, and product collection vessel. The alembic operates by heating the wine or fruit must in the lower vessel, with vapors rising through the copper column for distillation. Cooling water circulates through the condenser to separate alcohol from water. All contact surfaces are food-grade stainless steel AISI 304. Includes safety pressure relief valve and temperature monitoring. The unit is made according to EC regulations 2006/42/EC, 2014/30/EU, 2014/35/EU."
-   
-   C) SPECIFICATIONS (from spec tables):
-      Extract structured technical data:
-      - Dimensions: "4000 x 1530 x 4500 mm"
-      - Weight: "865 Kg"  
-      - Capacity: "1000 Litres"
-      - Power: "2,3 kW"
-      - Pressure ratings: "Max 0.5 bar"
-      - Materials: "AISI 304 stainless steel"
-      - Standards: "CE certified, EC 2006/42"
-      
-      Format as single line: "Capacity: 1000L, Dimensions: 4000x1530x4500mm, Weight: 865kg, Power: 2.3kW, Max pressure: 0.5bar, Material: AISI 304, Standards: EC 2006/42/EC, 2014/30/EU, 2014/35/EU"
-
-3. SEMANTIC READING RULES
-
-   ✓ Read pages BEFORE pricing table (product introduction)
-   ✓ Read pages AFTER pricing table (technical details)
-   ✓ Look for equipment photos/diagrams - describe what you see
-   ✓ Connect table items to surrounding text by name/model
-   ✓ Include regulatory info (CE marks, standards)
-   ✓ Preserve exact model numbers, part codes
-   ✓ Keep technical terms in original language
-
-4. PRICE STATES
-   - Numeric: Keep EXACT format with dots/commas: "€96.900,00"
-   - Included: "Included" (when price is 0 or says "included")
-   - On request: "On request" (when "to be quoted", "can be offered")
-
-═══════════════════════════════════════════════════════════════
-OUTPUT FORMAT
-═══════════════════════════════════════════════════════════════
+SECTIONS TO LOOK FOR:
+- Main Equipment
+- Options / Accessories
+- Format Changes
+- Spare Parts
+- Packing / Transportation
+- Any other priced sections
 
 Return ONLY valid JSON array:
-
 [{
   "category": "Main Equipment",
-  "item_name": "DISCONTINUOUS DISTILLATION UNIT C27",
+  "item_name": "MODULAR CM 576-9-SM-4B 2-0-0-0-0",
   "quantity": "1",
-  "unit_price": "€96.900,00",
-  "total_price": "€96.900,00",
-  "description": "DISCONTINUOUS DISTILLATION UNIT C27 for wine, fermented grapes and other fruits - working with indirect steam at max. 0,5 bar, operating at atmospheric pressure. Alembic capacity: 1000 Litres. The unit features copper and stainless steel construction with a tall vertical column and spherical alembic. Complete with heating jacket, temperature control system, cooling condenser, and product collection vessel. The alembic operates by heating the wine or fruit must in the lower vessel, with vapors rising through the copper column for distillation. Cooling water circulates through the condenser to separate alcohol from water. All contact surfaces are food-grade stainless steel AISI 304. Includes safety pressure relief valve and temperature monitoring. The unit is made according to EC regulations 2006/42/EC, 2014/30/EU, 2014/35/EU.",
-  "specifications": "Capacity: 1000 Litres, Maximum steam pressure: 0.5 bar, Steam working pressure: 0.2-0.5 bar, Installed electric power: 2.3 kW, Dimensions: 4000 x 1530 x 4500 mm, Weight: 865 Kg, Material: Copper and stainless steel construction, Standards: EC 2006/42/EC, 2014/30/EU, 2014/35/EU",
-  "details": "Custom Tariff 8419 4000. Other features as per enclosed description."
-},
-{
-  "category": "Packing",
-  "item_name": "Packing (wooden crates) and loading on truck",
-  "quantity": "1",
-  "unit_price": "€1.830,00",
-  "total_price": "€1.830,00",
-  "description": "Packing in wooden crates and loading on truck for safe transportation. Professional export packaging with wood crating to protect equipment during international shipping.",
-  "specifications": "",
-  "details": ""
+  "unit_price": "€150.320,00",
+  "total_price": "€150.320,00"
 }]
 
-CRITICAL REMINDERS:
-- Read ENTIRE document semantically - not just table cells
-- Build descriptions from ALL content about each item (100-300 words)
-- Look for technical details on pages AFTER the pricing table
-- Extract complete specifications from spec tables
-- Preserve exact pricing format
-- Return ONLY valid JSON - no markdown, no explanations
+No markdown, no explanations, just JSON array.
 """}
         ]
         
         for img_data in image_data_list:
-            content.append({"type": "image_url", "image_url": {"url": img_data}})
+            pricing_content.append({"type": "image_url", "image_url": {"url": img_data}})
         
-        print("Calling OpenAI Vision API with SEMANTIC extraction...", flush=True)
-        print("Token limit: 8000", flush=True)
+        print("Calling GPT-4o for pricing extraction...", flush=True)
+        phase1_start = time.time()
         
-        response = openai.ChatCompletion.create(
+        response_pricing = openai.ChatCompletion.create(
             model="gpt-4o",
-            messages=[{"role": "user", "content": content}],
-            max_tokens=8000,
+            messages=[{"role": "user", "content": pricing_content}],
+            max_tokens=MAX_TOKENS_PRICING,
             temperature=0
         )
         
-        print("Received response from OpenAI", flush=True)
+        print(f"✓ Phase 1 completed ({time.time() - phase1_start:.1f}s)", flush=True)
         
-        extracted_json = response.choices[0].message.content.strip()
+        pricing_json = response_pricing.choices[0].message.content.strip()
         
-        # Clean JSON formatting
-        if extracted_json.startswith("```json"):
-            extracted_json = extracted_json.replace("```json", "").replace("```", "").strip()
-        elif extracted_json.startswith("```"):
-            extracted_json = extracted_json.replace("```", "").strip()
+        # Clean JSON
+        if pricing_json.startswith("```json"):
+            pricing_json = pricing_json.replace("```json", "").replace("```", "").strip()
+        elif pricing_json.startswith("```"):
+            pricing_json = pricing_json.replace("```", "").strip()
         
-        print("Parsing JSON...", flush=True)
-        items = json.loads(extracted_json)
+        items = json.loads(pricing_json)
+        print(f"✓ Extracted {len(items)} pricing items", flush=True)
         
-        print(f"✓ Extracted {len(items)} items", flush=True)
-        
-        if len(items) == 0:
-            print("ERROR: No items extracted", flush=True)
-            return False
-        
-        # Quality metrics
-        items_with_description = sum(1 for item in items if len(item.get('description', '')) > 100)
-        items_with_specs = sum(1 for item in items if item.get('specifications', '').strip())
-        
-        total_desc_length = sum(len(item.get('description', '')) for item in items)
-        avg_desc_length = total_desc_length // len(items) if items else 0
-        
-        print("\n" + "="*60, flush=True)
-        print("SEMANTIC EXTRACTION QUALITY", flush=True)
-        print("="*60, flush=True)
-        print(f"Total items: {len(items)}", flush=True)
-        print(f"Items with full descriptions (>100 chars): {items_with_description} ({items_with_description*100//len(items)}%)", flush=True)
-        print(f"Items with specifications: {items_with_specs} ({items_with_specs*100//len(items)}%)", flush=True)
-        print(f"Average description length: {avg_desc_length} characters", flush=True)
-        print("="*60 + "\n", flush=True)
-        
-        # Show sample
-        if items:
-            sample = items[0]
-            print("SAMPLE EXTRACTION:", flush=True)
-            print(f"  Item: {sample.get('item_name', 'N/A')}", flush=True)
-            print(f"  Description: {sample.get('description', '')[:200]}...", flush=True)
-            print(f"  Description length: {len(sample.get('description', ''))} chars", flush=True)
-            print(f"  Specifications: {sample.get('specifications', 'N/A')[:100]}...", flush=True)
-            print("", flush=True)
-        
-        # Group by category
+        # Show categories
         categories = {}
         for item in items:
-            cat = item.get("category", "Main Items")
-            if cat not in categories:
-                categories[cat] = []
-            categories[cat].append(item)
+            cat = item.get("category", "Unknown")
+            categories[cat] = categories.get(cat, 0) + 1
         
-        print(f"Grouped into {len(categories)} categories:", flush=True)
-        for cat, cat_items in categories.items():
-            print(f"  - {cat}: {len(cat_items)} items", flush=True)
+        print("Categories found:", flush=True)
+        for cat, count in categories.items():
+            print(f"  - {cat}: {count} items", flush=True)
         
-        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        # =================================================================
+        # PHASE 2: EXTRACT COMPLETE TECHNICAL CONTENT
+        # =================================================================
+        print("\n" + "=" * 80, flush=True)
+        print("PHASE 2: EXTRACTING COMPLETE TECHNICAL CONTENT", flush=True)
+        print("=" * 80, flush=True)
         
-        # Save
+        technical_content = [
+            {"type": "text", "text": """Extract ALL TECHNICAL CONTENT from this document.
+
+Your job: Find and extract COMPLETE technical descriptions, specifications, and details.
+
+WHAT TO EXTRACT:
+Find content that appears AFTER the pricing table but BEFORE commercial terms.
+This includes:
+- Product descriptions and overviews
+- Technical specifications sections
+- Feature descriptions
+- Operating principles
+- Materials and construction details
+- Standards and certifications
+- Any technical paragraphs related to the products
+
+HOW TO EXTRACT:
+1. Look for numbered sections (e.g., "1. MODULAR CM...", "2. Side-mounted air...")
+2. For EACH section, extract:
+   - section_number: The number (e.g., "1", "2", "3")
+   - heading: The section title
+   - full_content: COMPLETE text - do NOT summarize, do NOT truncate
+   
+3. If there's a "Key Specifications" subsection, extract it separately
+
+CRITICAL RULES:
+- Extract VERBATIM - copy text word-for-word
+- Do NOT shorten or summarize
+- Do NOT skip any paragraphs
+- Do NOT stop after first few sections
+- Continue until you see "Commercial Terms" or "Payment Terms"
+- If content is 500+ words, that's GOOD - keep it all
+
+EXAMPLE OUTPUT:
+[{
+  "section_number": "1",
+  "heading": "MODULAR CM 576-9-SM-4B 2-0-0-0-0",
+  "full_content": "The MODULAR CM 576-9-SM-4B 2-0-0-0-0 is an automatic rotary labelling machine designed with a new construction concept for easy and quick reconfiguration. It features a modular and ergonomic design with a rounded-steel frame towards the guards. The machine-carrying structures are made of AISI 304 stainless steel, while the lower one is steel. It includes a bottle transfer system with anti-wear and tear plastic material components. The bottle carousel has a bottle plate covered with AISI 304 and can be equipped with centering or spotting plates. The machine offers speed adjustment and automatic control, with a pneumatic system ready to connect to existing lines. It complies with EC standards and includes manual greasing or grouped grease nipples. The machine is controlled by a PLC with a touch-screen control panel, automatic speed variation, and safety guards according to EEC rules.",
+  "specifications": "Label length: 12-140mm, Label height: 20-180mm, Container diameter: 50-120mm, Container height: 110-350mm, Alternated bottle height: 210-440mm, Machine diameter: 576mm, Machine height: 2050-2310mm, Output: 3000 bph, Machine pitch: 200-400mm, Starwheels diameter: 384mm, No. starwheel divisions: 6, Voltage: 400V (+/-10%) 3F + N + PE, Controls: 24V cc, Material: AISI 304 stainless steel, Standards: EC certified"
+},
+{
+  "section_number": "2",
+  "heading": "Side-mounted air conditioning for electrical cabinet",
+  "full_content": "Side-mounted air conditioning unit for electrical cabinet, rated at IP55. Designed to maintain optimal temperature conditions within the electrical cabinet, ensuring reliable operation of the machine's electronic components.",
+  "specifications": ""
+}]
+
+Return ONLY valid JSON array. No markdown, no explanations.
+"""}
+        ]
+        
+        for img_data in image_data_list:
+            technical_content.append({"type": "image_url", "image_url": {"url": img_data}})
+        
+        print("Calling GPT-4o for technical content extraction...", flush=True)
+        phase2_start = time.time()
+        
+        response_technical = openai.ChatCompletion.create(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": technical_content}],
+            max_tokens=MAX_TOKENS_TECHNICAL,
+            temperature=0
+        )
+        
+        print(f"✓ Phase 2 completed ({time.time() - phase2_start:.1f}s)", flush=True)
+        
+        technical_json = response_technical.choices[0].message.content.strip()
+        
+        # Clean JSON
+        if technical_json.startswith("```json"):
+            technical_json = technical_json.replace("```json", "").replace("```", "").strip()
+        elif technical_json.startswith("```"):
+            technical_json = technical_json.replace("```", "").strip()
+        
+        technical_sections = json.loads(technical_json)
+        print(f"✓ Extracted {len(technical_sections)} technical sections", flush=True)
+        
+        # Quality check
+        total_chars = sum(len(section.get('full_content', '')) for section in technical_sections)
+        avg_chars = total_chars // len(technical_sections) if technical_sections else 0
+        
+        print(f"Quality metrics:", flush=True)
+        print(f"  Total technical content: {total_chars:,} characters", flush=True)
+        print(f"  Average per section: {avg_chars} characters", flush=True)
+        
+        # Show sample
+        if technical_sections:
+            print("\nSample technical section:", flush=True)
+            sample = technical_sections[0]
+            print(f"  Section: {sample.get('heading', 'N/A')}", flush=True)
+            content = sample.get('full_content', '')
+            print(f"  Content length: {len(content)} chars", flush=True)
+            print(f"  First 150 chars: {content[:150]}...", flush=True)
+        
+        # =================================================================
+        # MERGE PHASES: Match technical content to pricing items
+        # =================================================================
+        print("\n" + "=" * 80, flush=True)
+        print("MERGING: Matching technical content to pricing items", flush=True)
+        print("=" * 80, flush=True)
+        
+        # Create mapping by section number
+        tech_by_number = {}
+        for section in technical_sections:
+            num = section.get('section_number', '')
+            if num:
+                tech_by_number[num] = section
+        
+        # Match to items
+        matched = 0
+        for idx, item in enumerate(items):
+            item_number = str(idx + 1)
+            
+            if item_number in tech_by_number:
+                tech = tech_by_number[item_number]
+                item['description'] = tech.get('full_content', '')
+                item['specifications'] = tech.get('specifications', '')
+                item['details'] = ''
+                matched += 1
+            else:
+                # No technical content for this item
+                item['description'] = ''
+                item['specifications'] = ''
+                item['details'] = ''
+        
+        print(f"✓ Matched {matched}/{len(items)} items with technical content", flush=True)
+        
+        if matched < len(items):
+            print(f"⚠ {len(items) - matched} items have no technical content", flush=True)
+        
+        # =================================================================
+        # SAVE OUTPUT
+        # =================================================================
         output_data = {
             "items": items,
+            "technical_sections": technical_sections,
             "categories": list(categories.keys()),
-            "extraction_version": "SV13_Semantic"
+            "extraction_version": "SV16_TwoPhase",
+            "extraction_stats": {
+                "total_items": len(items),
+                "items_with_descriptions": matched,
+                "total_technical_chars": total_chars,
+                "avg_chars_per_section": avg_chars
+            }
         }
         
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
         with open(output_path, 'w', encoding='utf-8') as f:
             json.dump(output_data, f, indent=2, ensure_ascii=False)
         
-        print(f"✓ Saved to {output_path}", flush=True)
-        print("=== SEMANTIC EXTRACTION COMPLETED ===", flush=True)
+        total_time = time.time() - start_time
+        
+        print("\n" + "=" * 80, flush=True)
+        print("EXTRACTION COMPLETED SUCCESSFULLY", flush=True)
+        print("=" * 80, flush=True)
+        print(f"Total time: {total_time:.1f}s", flush=True)
+        print(f"Output: {output_path}", flush=True)
+        print(f"Items: {len(items)}", flush=True)
+        print(f"Technical sections: {len(technical_sections)}", flush=True)
+        print(f"Match rate: {matched}/{len(items)} ({matched*100//len(items) if items else 0}%)", flush=True)
+        print("=" * 80, flush=True)
+        
         return True
         
     except Exception as e:
-        print(f"FATAL ERROR: {str(e)}", flush=True)
+        print(f"\n✗ FATAL ERROR: {str(e)}", flush=True)
         import traceback
         traceback.print_exc()
         return False
 
 if __name__ == "__main__":
-    print("Semantic Extraction Script Started", flush=True)
+    print("Two-Phase Extraction Script Started", flush=True)
     pdf_path = os.path.join(UPLOAD_FOLDER, "offer1.pdf")
     output_path = os.path.join(OUTPUT_FOLDER, "items_offer1.json")
     
